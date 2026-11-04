@@ -1,0 +1,137 @@
+import base64
+import json
+import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
+
+import app as service
+
+
+AUTH_USER_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+APP_USER_ID = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
+EVENT_ID = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+
+
+class AuthenticatedAPITests(unittest.TestCase):
+    def setUp(self):
+        self.auth_user = SimpleNamespace(
+            id=AUTH_USER_ID,
+            email="attendee@example.com",
+            email_confirmed_at="2026-11-04T12:00:00Z",
+            user_metadata={"display_name": "Campus Attendee"},
+        )
+        self.public_client = Mock()
+        self.public_client.auth.get_user.return_value = SimpleNamespace(user=self.auth_user)
+        self.service_client = Mock()
+        self.client_patches = (
+            patch.object(service, "supabase_public", self.public_client),
+            patch.object(service, "supabase", self.service_client),
+        )
+        for patcher in self.client_patches:
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.client = service.app.test_client()
+        self.app_user = {
+            "id": APP_USER_ID,
+            "email": "attendee@example.com",
+            "role": "attendee",
+            "auth_user_id": AUTH_USER_ID,
+        }
+
+    def test_protected_route_rejects_missing_bearer_token(self):
+        response = self.client.get("/api/me")
+
+        self.assertEqual(response.status_code, 401)
+        self.public_client.auth.get_user.assert_not_called()
+
+    def test_protected_route_rejects_invalid_auth_user(self):
+        self.public_client.auth.get_user.return_value = SimpleNamespace(user=None)
+
+        response = self.client.get("/api/me", headers={"Authorization": "Bearer token"})
+
+        self.assertEqual(response.status_code, 401)
+
+    def test_protected_route_rejects_unconfirmed_email(self):
+        self.auth_user.email_confirmed_at = None
+
+        with patch.object(service, "get_one") as get_one:
+            response = self.client.get("/api/me", headers={"Authorization": "Bearer token"})
+
+        self.assertEqual(response.status_code, 403)
+        get_one.assert_not_called()
+
+    def test_protected_route_rejects_unlinked_user(self):
+        with patch.object(service, "get_one", return_value=None):
+            response = self.client.get("/api/me", headers={"Authorization": "Bearer token"})
+
+        self.assertEqual(response.status_code, 403)
+
+    def test_profile_uses_verified_identity_and_database_role(self):
+        organizer = {**self.app_user, "role": "organizer"}
+        with patch.object(service, "get_one", return_value=organizer):
+            response = self.client.get("/api/me", headers={"Authorization": "Bearer token"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["id"], AUTH_USER_ID)
+        self.assertEqual(response.json["email"], "attendee@example.com")
+        self.assertEqual(response.json["name"], "Campus Attendee")
+        self.assertEqual(response.json["role"], "organizer")
+
+    def test_registration_uses_mapped_app_user_id(self):
+        registration = {"id": "registration-id", "event_id": EVENT_ID, "user_id": APP_USER_ID}
+        self.service_client.rpc.return_value.execute.return_value = SimpleNamespace(
+            data={"status": "created", "registration": registration}
+        )
+        with patch.object(service, "get_one", side_effect=[self.app_user, {"id": EVENT_ID, "capacity": 10}]):
+            response = self.client.post(
+                "/api/registrations",
+                json={"event_id": EVENT_ID},
+                headers={"Authorization": "Bearer token"},
+            )
+
+        self.assertEqual(response.status_code, 201)
+        self.service_client.rpc.assert_called_once_with(
+            "register_for_event",
+            {"p_event_id": EVENT_ID, "p_user_id": APP_USER_ID},
+        )
+
+    def test_organizer_cannot_register_as_attendee(self):
+        organizer = {**self.app_user, "role": "organizer"}
+        with patch.object(service, "get_one", return_value=organizer):
+            response = self.client.post(
+                "/api/registrations",
+                json={"event_id": EVENT_ID},
+                headers={"Authorization": "Bearer token"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.service_client.rpc.assert_not_called()
+
+    def test_attendee_cannot_view_organizer_registration_list(self):
+        with patch.object(service, "get_one", return_value=self.app_user):
+            response = self.client.get(
+                f"/api/events/{EVENT_ID}/registrations",
+                headers={"Authorization": "Bearer token"},
+            )
+
+        self.assertEqual(response.status_code, 403)
+        self.service_client.table.assert_not_called()
+
+    def test_public_config_never_exposes_a_service_role_key(self):
+        encoded_claims = base64.urlsafe_b64encode(
+            json.dumps({"role": "service_role"}).encode()
+        ).decode().rstrip("=")
+        service_role_key = f"header.{encoded_claims}.signature"
+        with (
+            patch.object(service, "SUPABASE_URL", "https://example.supabase.co"),
+            patch.object(service, "SUPABASE_PUBLISHABLE_KEY", service_role_key),
+            patch.object(service, "SUPABASE_SERVICE_ROLE_KEY", service_role_key),
+        ):
+            response = self.client.get("/api/config")
+
+        self.assertEqual(response.status_code, 503)
+        self.assertNotIn(service_role_key, response.get_data(as_text=True))
+
+
+if __name__ == "__main__":
+    unittest.main()
