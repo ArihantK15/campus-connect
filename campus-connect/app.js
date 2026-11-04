@@ -27,7 +27,6 @@ function eventFromApi(record) {
  };
 }
 
-// This prototype uses browser-local accounts. There is no server authentication.
 const $ = selector => document.querySelector(selector);
 $('.hero').hidden=true;
 $('.attendee-stack').hidden=true;
@@ -57,20 +56,16 @@ const memory = new Map(); let storageWarning = false;
 function read(key, fallback) { try { const raw = localStorage.getItem('cc-'+key); return raw === null ? (memory.get(key) ?? fallback) : JSON.parse(raw); } catch { return memory.get(key) ?? fallback; } }
 function write(key, value) { memory.set(key,value); try { localStorage.setItem('cc-'+key,JSON.stringify(value)); } catch { if (!storageWarning) { storageWarning=true; setTimeout(()=>toast('Browser storage is unavailable. Changes will last only for this session.'),0); } } }
 const validIds = value => Array.isArray(value) ? [...new Set(value.filter(id=>events.some(event=>event.id===id)))] : [];
-let accounts = read('accounts',[]); if (!Array.isArray(accounts)) accounts=[];
-accounts = accounts.filter(a=>a && typeof a.email==='string' && typeof a.name==='string' && a.name.trim() && typeof a.salt==='string' && typeof a.hash==='string');
 let profiles = read('profiles',{}); if (!profiles || typeof profiles!=='object' || Array.isArray(profiles)) profiles={};
-let activeEmail = read('session',null);
-let user = accounts.find(a=>a.email===activeEmail) || null;
-api.setUser(user?.email||null);
+let user = null;
 let saved=[], registered=[], joined=[], category='All events', page='discover', calendar=false, eventsLoadFailed=false;
-let pending=null, lastFocus=null;
-let legacyUser=read('user',null);
-function getProfile(key) {const p=profiles[key]||{};return {saved:validIds(p.saved),registered:validIds(p.registered),groups:Array.isArray(p.groups)?p.groups.filter(i=>Number.isInteger(i)&&i>=0&&i<4):[]};}
-function restoreProfile() { const p=getProfile(user?user.email:'guest');saved=p.saved;registered=user?p.registered:[];joined=user?p.groups:[]; }
-function persist() {const key=user?user.email:'guest';profiles[key]={saved,registered:user?registered:[],groups:user?joined:[]};write('profiles',profiles);write('session',user?.email||null);}
-// Preserve previous prototype data only when its owner signs up with the same email.
-if (!profiles.guest) {profiles.guest={saved:validIds(read('saved',[])),registered:[],groups:[]};write('profiles',profiles);}
+let pending=read('auth-pending',null), lastFocus=null;
+if(!pending||!['event','community'].includes(pending.type)||(pending.type==='event'&&typeof pending.id!=='string')||(pending.type==='community'&&(!Number.isInteger(pending.id)||pending.id<0||pending.id>=4)))pending=null;
+function getProfile(key) {const p=profiles[key]||{};return {saved:validIds(p.saved),groups:Array.isArray(p.groups)?p.groups.filter(i=>Number.isInteger(i)&&i>=0&&i<4):[]};}
+function restoreProfile() { const p=getProfile(user?user.email:'guest');saved=p.saved;registered=[];joined=user?p.groups:[]; }
+function persist() {const key=user?user.email:'guest';profiles[key]={saved,groups:user?joined:[]};write('profiles',profiles);}
+function persistPending(action) {pending=action;write('auth-pending',action);}
+if (!profiles.guest) {profiles.guest={saved:validIds(read('saved',[])),groups:[]};write('profiles',profiles);}
 restoreProfile();
 function profile() {
  $('#event-count').textContent=registered.length;
@@ -99,7 +94,6 @@ async function loadEvents() {
 }
 async function loadUserRegistrations() {
  if(!user)return false;
- api.setUser(user.email);
  try {
   const rows=await api.getMyRegistrations();
   if(!Array.isArray(rows))throw new Error('The registrations API returned an invalid response.');
@@ -108,14 +102,15 @@ async function loadUserRegistrations() {
   return true;
  } catch(error) {
   console.error('Failed to load registrations:',error);
-  if(error.status===404) {
-   user=null;api.setUser(null);write('session',null);restoreProfile();render();
-   toast('This local account is not a seeded demo user. Please sign in with a seeded attendee email.');
-   return false;
-  }
+  if(expireSession(error))return false;
   toast(error.message||'Your registrations could not be loaded.');
   return false;
  }
+}
+function expireSession(error) {
+ if(error?.status!==401)return false;
+ user=null;api.clearSession();restoreProfile();render();closeModal();toast('Your session expired. Please sign in again.');
+ return true;
 }
 function updateHero() {
  const feature=events.find(event=>event.timestamp)||events[0];
@@ -218,7 +213,7 @@ function openModal(html) {
  normalizeIcons($('#modal-content'));$('.modal').scrollTop=0;$('.modal').focus();
 }
 function closeModal() {
- $('#modal').hidden=true;document.body.style.overflow='';$('.sidebar').inert=false;$('.app').inert=false;$('.skip-link').inert=false;pending=null;
+ $('#modal').hidden=true;document.body.style.overflow='';$('.sidebar').inert=false;$('.app').inert=false;$('.skip-link').inert=false;pending=null;write('auth-pending',null);
  if(lastFocus?.isConnected)lastFocus.focus({preventScroll:true});else $('#section-title').parentElement.closest('section').focus({preventScroll:true});
 }
 function detail(id) {
@@ -226,42 +221,52 @@ function detail(id) {
  const ticket=e.price===null?'Ticket pricing not listed':e.price?'$'+e.price+' · pay at the event':'Free · Everyone welcome';
  const capacity=e.capacity===null?'Capacity not listed':`${e.capacity} total spots`;
  openModal(`<img class="modal-image" src="${esc(e.image)}" alt=""><div class="modal-body"><span class="category-label">${esc(e.category)}</span><h2>${esc(e.title)}</h2><p>${esc(e.subtitle)}</p><div class="detail-info"><div><span>WHEN</span>${esc(e.dateLabel)}<br>${esc(e.time)}</div><div><span>WHERE</span>${esc(e.location)}</div><div><span>HOSTED BY</span>${esc(e.host)}</div><div><span>YOUR TICKET</span>${esc(ticket)}</div><div><span>CAPACITY</span>${esc(capacity)}</div></div><h3>A little more about it</h3><p>${esc(e.description)}</p><button class="primary-btn" id="register-btn">${registered.includes(id)?'View your entry pass':'Register interest'} ${icon('arrow')}</button></div>`);
- $('#register-btn').onclick=()=>{if(registered.includes(id)){success(e);return;}pending={type:'event',id};if(!user){auth();return;}confirmRegistration(e);};
-}
-async function passwordHash(password,salt) {
- if(!globalThis.crypto?.subtle)throw new Error('Password verification needs a local server. Start the site with the included launcher.');
- const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(password),'PBKDF2',false,['deriveBits']);
- const bits=await crypto.subtle.deriveBits({name:'PBKDF2',salt:new TextEncoder().encode(salt),iterations:100000,hash:'SHA-256'},key,256);
- return Array.from(new Uint8Array(bits)).map(n=>n.toString(16).padStart(2,'0')).join('');
+ $('#register-btn').onclick=()=>{if(registered.includes(id)){success(e);return;}pending={type:'event',id};if(!user){auth();return;}pending=null;confirmRegistration(e);};
 }
 function auth(login=false,draft={}) {
- openModal(`<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><div class="eyebrow">YOUR CAMPUS STORY STARTS HERE</div><h2>${login?'Welcome back.':'A campus full of possibilities.'}</h2><p>${pending?.type==='event'?'Sign in to finish your event registration.':pending?.type==='community'?'Sign in to join this community.':'Meet your people. Make your plans. Feel a little more connected.'}</p><form id="auth-form">${login?'':`<label class="form-field">Your name<input name="name" autocomplete="name" placeholder="Jamie Davis" value="${esc(draft.name||'')}" required minlength="2" maxlength="60"></label>`}<label class="form-field">Email address<input name="email" type="email" placeholder="you@westbridge.edu" autocomplete="email" value="${esc(draft.email||'')}" required maxlength="254" spellcheck="false" autocapitalize="none"></label><label class="form-field" for="auth-password">Password <span class="field-hint">At least 8 characters</span></label><div class="password-field"><input id="auth-password" name="password" type="password" autocomplete="${login?'current-password':'new-password'}" required minlength="8" maxlength="128"><button type="button" id="show-password" aria-label="Show password" aria-pressed="false">Show</button></div><p id="auth-error" class="form-error" role="alert" hidden></p><button class="primary-btn auth-submit" type="submit">${login?'Log in':'Create local demo account'} ${icon('arrow')}</button></form><div class="form-switch">${login?'New around here?':'Already part of the community?'} <button id="auth-switch">${login?'Sign up':'Log in'}</button></div><p class="auth-note"><b>Local prototype:</b> use a sample password. Accounts work only in this browser and are not university accounts. Passwords are stored as salted hashes. No email is sent.</p>${login?'<p class="legacy-note">Used the previous version? Create a local account with the same email to recover your saved events and registrations.</p>':''}</div>`);
+ openModal(`<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><div class="eyebrow">YOUR CAMPUS STORY STARTS HERE</div><h2>${login?'Welcome back.':'A campus full of possibilities.'}</h2><p>${pending?.type==='event'?'Sign in to finish your event registration.':pending?.type==='community'?'Sign in to join this community.':'Meet your people. Make your plans. Feel a little more connected.'}</p><form id="auth-form">${login?'':`<label class="form-field">Your name<input name="name" autocomplete="name" placeholder="Jamie Davis" value="${esc(draft.name||'')}" required minlength="2" maxlength="60"></label>`}<label class="form-field">Email address<input name="email" type="email" placeholder="you@westbridge.edu" autocomplete="email" value="${esc(draft.email||'')}" required maxlength="254" spellcheck="false" autocapitalize="none"></label><label class="form-field" for="auth-password">Password <span class="field-hint">At least 8 characters</span></label><div class="password-field"><input id="auth-password" name="password" type="password" autocomplete="${login?'current-password':'new-password'}" required minlength="8" maxlength="128"><button type="button" id="show-password" aria-label="Show password" aria-pressed="false">Show</button></div><p id="auth-error" class="form-error" role="alert" hidden></p><button class="primary-btn auth-submit" type="submit">${login?'Log in':'Create account'} ${icon('arrow')}</button></form><div class="form-switch">${login?'New around here?':'Already part of the community?'} <button id="auth-switch">${login?'Sign up':'Log in'}</button></div><p class="auth-note">Campus Connect uses Supabase Auth. You may need to verify your email before signing in. Saved events and community preferences stay in this browser.</p></div>`);
  $('#show-password').onclick=()=>{const input=$('#auth-password'),show=input.type==='password';input.type=show?'text':'password';$('#show-password').textContent=show?'Hide':'Show';$('#show-password').setAttribute('aria-label',show?'Hide password':'Show password');$('#show-password').setAttribute('aria-pressed',String(show));};
  $('#auth-switch').onclick=()=>{const data=new FormData($('#auth-form'));auth(!login,{name:String(data.get('name')||draft.name||''),email:String(data.get('email')||'')});};
  $('#auth-form').onsubmit=async event=>{
   event.preventDefault();const form=event.currentTarget,submit=form.querySelector('[type="submit"]');if(submit.disabled)return;
-  const data=new FormData(form),email=String(data.get('email')).trim().toLowerCase(),name=String(data.get('name')||'').trim().replace(/\s+/g,' '),password=String(data.get('password'));
+  const data=new FormData(form),email=String(data.get('email')||'').trim().toLowerCase(),name=String(data.get('name')||'').trim().replace(/\s+/g,' '),password=String(data.get('password')||'');
   const showError=message=>{$('#auth-error').textContent=message;$('#auth-error').hidden=false;};
   if(!login&&name.length<2){showError('Please enter a name with at least 2 non-space characters.');return;}
-  const existing=accounts.find(a=>a.email===email);
-  if(!login&&existing){showError('An account with this email already exists in this browser. Choose Log in.');return;}
-  if(login&&!existing){showError('No local account found for this email. Choose Sign up to create one.');return;}
   submit.disabled=true;submit.textContent=login?'Logging in…':'Creating your account…';$('#auth-error').hidden=true;
   try {
-   let account;
-   if(login){const hash=await passwordHash(password,existing.salt);if(hash!==existing.hash){showError('The email and password do not match. Please try again.');return;}account=existing;}
-   else {const salt=Array.from(crypto.getRandomValues(new Uint8Array(16))).map(n=>n.toString(16).padStart(2,'0')).join('');account={email,name,salt,hash:await passwordHash(password,salt)};}
-   const serverRegistrations=await api.getMyRegistrations(email);
+   if(login)await api.signIn(email,password);
+   else {
+    const result=await api.signUp(name,email,password);
+    if(!result.hasSession){
+     if(!form.isConnected||$('#modal').hidden)return;
+     const followup=pending;closeModal();
+     if(followup)persistPending(followup);
+     toast('Check your email for a verification link, then log in to continue.');
+     return;
+    }
+   }
+   const account=await api.getMe();
+   if(!account||typeof account.email!=='string'||typeof account.name!=='string')throw new Error('Your account profile could not be loaded.');
+   const serverRegistrations=await api.getMyRegistrations();
    if(!Array.isArray(serverRegistrations))throw new Error('The registrations API returned an invalid response.');
-   // Ignore an asynchronous result if the visitor closed or changed the form.
    if(!form.isConnected||$('#modal').hidden)return;
-   if(!login){accounts.push(account);write('accounts',accounts);if(legacyUser?.email?.toLowerCase()===email&&!profiles[email]){profiles[email]={saved:validIds(read('saved',[])),registered:validIds(read('registered',[])),groups:read('groups',[])};}}
-   const guestSaved=[...saved];user=account;api.setUser(email);restoreProfile();registered=[...new Set(serverRegistrations.map(row=>row.event_id).filter(id=>events.some(event=>event.id===id)))];saved=[...new Set([...saved,...guestSaved])];persist();profile();render();
-   if(pending?.type==='event'){confirmRegistration(events.find(e=>e.id===pending.id));}
-   else if(pending?.type==='community'){const id=pending.id;pending=null;if(!joined.includes(id))joined.push(id);persist();render();closeModal();toast('You’re part of the community!');}
-   else {closeModal();toast(`Welcome${login?' back':''}, ${user.name.split(' ')[0]}!`);}
-  } catch(error) {if(form.isConnected)showError(error.status===404?'That email is not one of the seeded demo users. Use an attendee email from the project seed data.':error.message||'Something went wrong. Please try again.');}
-  finally {if(form.isConnected){submit.disabled=false;submit.innerHTML=(login?'Log in':'Create local demo account')+' '+icon('arrow');}}
+   const guestSaved=[...saved];user=account;restoreProfile();registered=[...new Set(serverRegistrations.map(row=>row.event_id).filter(id=>events.some(item=>item.id===id)))];saved=[...new Set([...saved,...guestSaved])];persist();profile();render();
+   if(pending?.type==='event'){
+    const eventToRegister=events.find(item=>item.id===pending.id);pending=null;write('auth-pending',null);
+    if(eventToRegister)confirmRegistration(eventToRegister);else{closeModal();toast('That event is no longer available.');}
+   } else if(pending?.type==='community'){
+    const id=pending.id;pending=null;write('auth-pending',null);
+    if(Number.isInteger(id)&&id>=0&&id<communities.length&&!joined.includes(id))joined.push(id);
+    persist();render();closeModal();toast('You’re part of the community!');
+   } else {closeModal();toast(`Welcome${login?' back':''}, ${user.name.split(' ')[0]}!`);}
+  } catch(error) {
+   console.error('Authentication failed:',error);
+   if(error.status===401||error.status===403)api.clearSession();
+   const message=error.status===403?'Verify your email and make sure your account is linked to a Campus Connect profile.':error.message||'Authentication failed. Please try again.';
+   if(form.isConnected)showError(message);
+  } finally {
+   if(form.isConnected){submit.disabled=false;submit.innerHTML=(login?'Log in':'Create account')+' '+icon('arrow');}
+  }
  };
 }
 function confirmRegistration(e) {
@@ -276,6 +281,7 @@ function confirmRegistration(e) {
    if(!registered.includes(e.id))registered.push(e.id);
    pending=null;persist();render();success(e);
   } catch(error) {
+   if(expireSession(error))return;
    if(error.status===409)await loadUserRegistrations();
    const message=$('#registration-error');if(message){message.textContent=error.message||'Registration failed. Please try again.';message.hidden=false;}
    button.disabled=false;button.innerHTML=`Confirm registration ${icon('arrow')}`;
@@ -296,6 +302,7 @@ function success(e) {
     await api.cancelRegistration(e.id);
     registered=registered.filter(id=>id!==e.id);persist();render();closeModal();toast('Registration canceled. You can register again anytime.');
    } catch(error) {
+    if(expireSession(error))return;
     const message=$('#cancel-error');if(message){message.textContent=error.message||'Cancellation failed. Please try again.';message.hidden=false;}
     button.disabled=false;button.textContent='Yes, cancel registration';
    }
@@ -320,6 +327,18 @@ function toggleCommunity(id) {
   openModal(`<div class="modal-body"><h2>Leave this community?</h2><p>You’re about to leave <b>${communities[id][1]}</b>. You’re welcome back anytime.</p><button class="primary-btn danger-button" id="confirm-leave">Leave community</button><button class="secondary-btn" id="keep-community">Stay in the community</button></div>`);
   $('#keep-community').onclick=closeModal;$('#confirm-leave').onclick=()=>{joined=joined.filter(i=>i!==id);persist();render();closeModal();toast('You left the community. You can rejoin anytime.');};
  } else {joined.push(id);persist();render();$(`[data-community="${id}"]`)?.focus({preventScroll:true});toast('You’re part of the community!');}
+}
+function resumePendingAction() {
+ if(!user||!pending)return;
+ const action=pending;pending=null;write('auth-pending',null);
+ if(action.type==='event') {
+  const eventToRegister=events.find(event=>event.id===action.id);
+  if(eventToRegister)confirmRegistration(eventToRegister);else toast('That event is no longer available.');
+  return;
+ }
+ if(action.type==='community'&&action.id>=0&&action.id<communities.length&&!joined.includes(action.id)) {
+  joined.push(action.id);persist();render();toast('You’re part of the community!');
+ }
 }
 const pageInfo={discover:['Find your people.',' Make your plans.','Discover the moments that make campus feel like home.','Your next “why not?”','A full calendar. A campus full of possibilities.','Discover events'],registered:['Your plans.',' All in one place.','Your registrations, entry passes, and next campus memories.','Coming up for you','The moments you’ve said yes to.','My events'],saved:['Good things.',' Saved for later.','Keep the events that caught your eye close at hand.','Your saved events','A little inspiration for your next open afternoon.','Saved events'],communities:['Your interests.',' Your people.','Find a shared interest. Make an unexpected connection.','Find your kind of people','Everyone belongs somewhere. Start here.','Communities']};
 function navigate(p) {if(!pageInfo[p])p='discover';if(location.hash!=='#'+p){location.hash=p;}else setPage(p);}
@@ -361,16 +380,24 @@ $('#calendar-btn').onclick=()=>{calendar=!calendar;render();};
 $('#empty-action').onclick=()=>{if(eventsLoadFailed){loadEvents();return;}if(hasFilters())clearFilters();else if(page==='registered'&&!user){pending=null;auth(true);}else navigate(page==='discover'?'communities':'discover');};
 $('#hero-details').onclick=()=>{const feature=events.find(event=>event.timestamp)||events[0];if(feature)detail(feature.id);else toast('No events are available yet.');};
 $('#profile-btn').onclick=()=>{
- pending=null;if(!user){auth();return;}
- openModal(`<div class="modal-body"><div class="auth-logo" aria-hidden="true">✳</div><h2>Hey, ${esc(user.name)}.</h2><p>${esc(user.email)}</p><p>You have ${registered.length} registered event${registered.length===1?'':'s'}, ${saved.length} saved event${saved.length===1?'':'s'}, and ${joined.length} communit${joined.length===1?'y':'ies'}.</p><p class="auth-note">This profile is stored only in this browser. Logging out keeps your plans saved for your next login.</p><button class="primary-btn" id="logout">Log out</button></div>`);
- $('#logout').onclick=()=>{persist();user=null;api.setUser(null);write('session',null);restoreProfile();render();closeModal();toast('Logged out. Your plans are saved for your next login.');};
+ if(!user){auth();return;}pending=null;
+ openModal(`<div class="modal-body"><div class="auth-logo" aria-hidden="true">✳</div><h2>Hey, ${esc(user.name)}.</h2><p>${esc(user.email)}</p><p>You have ${registered.length} registered event${registered.length===1?'':'s'}, ${saved.length} saved event${saved.length===1?'':'s'}, and ${joined.length} communit${joined.length===1?'y':'ies'}.</p><p class="auth-note">Your registration is linked to your Supabase account. Saved events and community preferences stay in this browser.</p><button class="primary-btn" id="logout">Log out</button></div>`);
+ $('#logout').onclick=async()=>{
+  const button=$('#logout');button.disabled=true;let signOutFailed=false;
+  try {await api.signOut();}
+  catch(error){signOutFailed=true;console.error('Supabase sign-out failed:',error);}
+  finally {
+   persist();user=null;api.clearSession();restoreProfile();render();closeModal();
+   toast(signOutFailed?'You were signed out on this device, but Supabase could not revoke the server session.':'Logged out. Your browser-only preferences are saved.');
+  }
+ };
 };
 $('#explore-btn').onclick=()=>{navigate('discover');requestAnimationFrame(()=>$('#events-heading').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}));};
 $('#community-btn').onclick=()=>navigate('communities');
 $('#notification-btn').onclick=()=>openModal(`<div class="modal-body"><span class="auth-logo">${icon('bell')}</span><h2>Your campus updates</h2><p>${registered.length?`You’re registered for ${registered.length} event${registered.length===1?'':'s'}. Your entry passes are ready in My events.`:'You’re all caught up. Register for an event to start making campus plans.'}</p><button class="primary-btn" id="notifications-events">${registered.length?'Go to My events':'Discover events'}</button></div>`);
 document.addEventListener('click',event=>{if(event.target.closest('#notifications-events')){closeModal();navigate(registered.length?'registered':'discover');}});
-$('#help-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>A little help finding your way.</h2><p>Search by event name or category. Filter by category or date; the price filter is available when event pricing is listed. Bookmark events to keep them in Saved events.</p><p>Open an event and register to reserve a spot. Your entry passes live in <b>My events</b>, where you can download a calendar invite or cancel a registration.</p><p>Create a local demo account with a sample password. Log in with the same email and password to recover your plans in this browser. Other browsers and devices don’t share your data.</p><p>Events come from Supabase. Dates use the campus timezone; calendar downloads use an estimated one-hour duration. No emails are sent and no payments are collected.</p></div>');
-$('#about-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>Campus feels better connected.</h2><p>Campus Connect brings the best of Westbridge University into one place. Discover events, find a community, and make the kind of memories that stick around after the semester ends.</p><p>This is a local prototype with sample events, demo registrations, and browser-local accounts. Westbridge University is a fictional campus.</p></div>');
+$('#help-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>A little help finding your way.</h2><p>Search by event name or category. Filter by category or date; the price filter is available when event pricing is listed. Bookmark events to keep them in Saved events.</p><p>Open an event and register to reserve a spot. Your entry passes live in <b>My events</b>, where you can download a calendar invite or cancel a registration.</p><p>Create an account with Supabase Auth and verify your email if requested. Registrations are stored in Supabase; saved events and community preferences are browser-local and do not sync across devices.</p><p>Events come from Supabase. Dates use the campus timezone; calendar downloads use an estimated one-hour duration. No payments are collected.</p></div>');
+$('#about-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>Campus feels better connected.</h2><p>Campus Connect brings the best of Westbridge University into one place. Discover events, find a community, and make the kind of memories that stick around after the semester ends.</p><p>This prototype uses Supabase for authentication, event data, and registrations. Saved events and community preferences remain in this browser. Westbridge University is a fictional campus.</p></div>');
 function normalizeIcons(root) {
  const mapping={'✳':'spark','✶':'spark','↗':'arrow','↘':'arrow','ⓘ':'info','▥':'campus','▦':'calendar','◷':'clock','⌖':'pin','⌄':'chevron'};
  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())if(/[✳✶↗↘ⓘ▥▦◷⌖⌄]/.test(walker.currentNode.textContent))nodes.push(walker.currentNode);
@@ -383,4 +410,26 @@ $('#notification-btn').innerHTML=icon('bell');$('.search-box>span').innerHTML=ic
 // A missing remote photo must not show a broken-image glyph or hide event text.
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement){event.target.hidden=true;event.target.parentElement.classList.add('image-unavailable');}},true);
 $('#results-count').textContent='Loading events…';
-loadEvents().then(()=>setPage(location.hash.slice(1)||'discover'));
+async function startApp() {
+ try {
+  await api.initialize();
+  if(api.initialError)toast(api.initialError);
+  if(api.hasSession) {
+   try {
+    const account=await api.getMe();
+    if(!account||typeof account.email!=='string'||typeof account.name!=='string')throw new Error('Your account profile could not be loaded.');
+    user=account;restoreProfile();
+   } catch(error) {
+    if(error.status===401||error.status===403)api.clearSession();
+    else {console.error('Could not restore the Supabase session:',error);toast(error.message||'Your session could not be restored.');}
+   }
+  }
+ } catch(error) {
+  console.error('Supabase authentication is unavailable:',error);
+  toast(error.message||'Supabase authentication is unavailable.');
+ }
+ await loadEvents();
+ setPage(location.hash.slice(1)||'discover');
+ resumePendingAction();
+}
+startApp();

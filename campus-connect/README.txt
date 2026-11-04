@@ -1,50 +1,28 @@
-Campus Connect — corrected local prototype
+Campus Connect
 
-RUN ON YOUR MAC
-1. Keep this folder inside the New1 project folder so the Flask backend and
-   Supabase configuration are available in the parent directory.
-2. Install the project dependencies from the parent folder with:
+RUN LOCALLY
+1. Keep this folder inside the New1 project folder so Flask, Supabase settings,
+   and database migrations are available from the parent directory.
+2. Apply the Supabase Auth identity migration and configure email confirmation
+   and allowed redirect URLs. See the parent README for the required steps.
+3. Install dependencies from the parent project folder:
        pip install -r requirements.txt
-3. Double-click Start.command. It starts Flask (API + frontend) on one local
-   origin and opens your browser. Keep the Terminal window open while using it.
+4. Run `python app.py` from the parent folder, or double-click Start.command.
+   The launcher uses a local port selected at startup; use the URL it prints.
+   For email-confirmation redirects, allow that origin in Supabase Auth.
 
-If macOS will not open Start.command:
-Open Terminal, type cd followed by a space, drag this folder into Terminal,
-press Return, then run:
-    python3 start.py
+AUTHENTICATION AND DATA
+- Supabase Auth handles account signup, login, email verification, and sessions.
+- The Flask API verifies bearer tokens and maps confirmed users to `public.users`.
+- Events and registrations are stored in Supabase. Registrations are private to
+  the authenticated attendee; organizers can view attendees for their own events.
+- Saved events and community preferences are stored only in this browser.
+- New accounts receive the attendee role. Organizer roles must be assigned by
+  a trusted database administrator, never by browser metadata.
 
-Python 3 and the parent project's dependencies are required. The launcher
-chooses an available local port and opens its URL. Always use the URL printed
-by the launcher.
+This application is not affiliated with a real university. No payments are
+collected. Calendar invite duration is estimated; event details depend on the
+data configured in Supabase.
 
-UPDATING THE PREVIOUS VERSION
-Reload with Command+Shift+R after replacing the files, or use the new folder.
-Create a local demo account with your previous email to recover old registrations
-and saved events from the previous prototype. Recovery requires the same browser
-and the same local origin (including port). Old profiles did not have verified
-passwords, so they cannot be logged into until a local account is created.
-
-WHAT THIS DEMO DOES
-- Event discovery, search, date and price filters, saved events
-- Local demo signups and password-verified logins; only seeded demo identities
-  have Supabase data
-- Supabase-backed registration, entry passes, cancellation, and calendar files
-- Community membership with signup continuation and leave confirmation
-- Responsive cards and mobile calendar agenda, keyboard-accessible dialogs
-
-LOCAL DATA
-Use a sample password; this is not production or university authentication.
-Passwords are hashed with PBKDF2 and a random salt. All account data stays in
-this browser. Clearing site storage removes accounts and plans. Other devices
-and browsers do not share this local login. Event registrations are stored in
-Supabase. With browser storage blocked, local account data lasts only until the
-page is closed or reloaded. No emails are sent or payments taken.
-
-This is a localhost demo. The API uses demo email identities and a server-only
-service-role key; do not expose it publicly or use it for real attendee data.
-Production use requires Supabase Auth/JWT verification and user-scoped access.
-
-Assets are included, so the local site does not need external font or image
-requests. Font licenses and image source references are in assets/.
-
-See FIXES.md for the audit and verification summary.
+See FIXES.md for earlier frontend improvements and the parent README for setup,
+database migration, security, and deployment status.
