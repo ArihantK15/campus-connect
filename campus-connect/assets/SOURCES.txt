@@ -1,0 +1,12 @@
+Event photography: Unsplash (https://unsplash.com/license)
+Coffee: https://images.unsplash.com/photo-1521017432531-fbd92d768814
+Technology: https://images.unsplash.com/photo-1516321318423-f06f85e504b3
+Yoga: https://images.unsplash.com/photo-1506126613408-eca07ce68773
+Music: https://images.unsplash.com/photo-1521337581100-8ca9a73a5f79
+Pottery: https://images.unsplash.com/photo-1493106641515-6b5631de4bb9
+Social gathering: https://images.unsplash.com/photo-1511795409834-ef04bbd61622
+Careers: https://images.unsplash.com/photo-1519389950473-47ba0277781c
+Running: https://images.unsplash.com/photo-1552674605-db6ffd4facb5
+
+DM Sans and Manrope are distributed under the SIL Open Font License.
+License texts are included in this directory.
