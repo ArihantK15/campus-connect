@@ -3,10 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Campus Connect — Find your people.</title>
+  <title>Campus Connect — Find your people. Make your plans.</title>
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/fonts.css">
-  <link rel="stylesheet" href="style.css?v=4">
+  <link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to main content</a>
@@ -15,96 +18,212 @@
   <main id="landing-page" class="landing-page" hidden>
     <header class="landing-header">
       <a class="brand" href="#" aria-label="Campus Connect home">
-        <span class="brand-icon">c<span>c</span></span>
-        <span>campus<span class="brand-second">connect<span class="brand-dot">.</span></span></span>
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+          <path d="M10 16l4 4 8-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Campus Connect</span>
       </a>
       <nav class="landing-nav">
-        <button class="landing-btn secondary" id="landing-login">Log in</button>
+        <button class="landing-btn ghost" id="landing-login">Log in</button>
         <button class="landing-btn primary" id="landing-signup">Get Started</button>
       </nav>
     </header>
 
     <section class="landing-hero" aria-labelledby="landing-title">
       <div class="landing-hero-content">
-        <div class="eyebrow">YOUR CAMPUS, CONNECTED</div>
-        <h1 id="landing-title">Find your people.<br><span>Make your plans.</span></h1>
-        <p class="landing-tagline">Discover events, join communities, and make campus feel like home. All in one place.</p>
-        <div class="landing-cta">
-          <button class="landing-btn primary large" id="landing-cta-signup">Create Free Account <span>↗</span></button>
-          <button class="landing-btn secondary large" id="landing-cta-login">Log In <span>↗</span></button>
+        <div class="landing-badge">
+          <span class="badge-dot" aria-hidden="true"></span>
+          <span>New: Organizer Dashboard & Admin Panel</span>
         </div>
-        <p class="landing-trust">No credit card required · Supabase Auth · Student-built</p>
+        <h1 id="landing-title">Find your people.<br>Make your plans.</h1>
+        <p class="landing-tagline">The campus event platform built for students. Discover events, join communities, organize meetups — all in one place.</p>
+        <div class="landing-cta">
+          <button class="landing-btn primary large" id="landing-cta-signup">Create Free Account</button>
+          <button class="landing-btn ghost large" id="landing-cta-login">Log In</button>
+        </div>
+        <p class="landing-trust">No credit card · Supabase Auth · Open source</p>
+        
+        <div class="landing-stats">
+          <div class="stat">
+            <span class="stat-value" data-count="247">0</span>
+            <span class="stat-label">Events this semester</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" data-count="3891">0</span>
+            <span class="stat-label">Student registrations</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" data-count="12">0</span>
+            <span class="stat-label">Active communities</span>
+          </div>
+        </div>
       </div>
       <div class="landing-hero-visual">
-        <div class="landing-illustration">
-          <svg viewBox="0 0 400 400" aria-hidden="true">
-            <circle cx="200" cy="200" r="180" fill="none" stroke="#eeebf6" stroke-width="2"/>
-            <circle cx="200" cy="200" r="120" fill="none" stroke="#e0d5ed" stroke-width="2"/>
-            <circle cx="200" cy="200" r="60" fill="#efeaf8"/>
-            <g fill="#7460ac">
-              <circle cx="140" cy="160" r="12"/>
-              <circle cx="260" cy="160" r="12"/>
-              <circle cx="140" cy="240" r="12"/>
-              <circle cx="260" cy="240" r="12"/>
-              <circle cx="200" cy="200" r="16"/>
-            </g>
-            <path d="M140 280 Q200 320 260 280" stroke="#7460ac" stroke-width="4" fill="none" stroke-linecap="round"/>
-          </svg>
+        <div class="hero-preview">
+          <div class="preview-header">
+            <div class="preview-dots">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="preview-url">campus-connect.app/discover</div>
+          </div>
+          <div class="preview-content">
+            <div class="preview-sidebar">
+              <div class="preview-nav-item active"><span>◫</span> Discover</div>
+              <div class="preview-nav-item"><span>▣</span> My Events</div>
+              <div class="preview-nav-item"><span>♧</span> Saved</div>
+              <div class="preview-nav-item"><span>♧</span> Communities</div>
+            </div>
+            <div class="preview-events">
+              <div class="preview-event-card">
+                <div class="preview-event-image"></div>
+                <div class="preview-event-info">
+                  <span class="preview-category">Tech & Career</span>
+                  <h4>Product Builders Meetup</h4>
+                  <p class="preview-meta">Feb 18 · 6:30 PM · Main Auditorium</p>
+                </div>
+              </div>
+              <div class="preview-event-card">
+                <div class="preview-event-image"></div>
+                <div class="preview-event-info">
+                  <span class="preview-category">Music & Arts</span>
+                  <h4>Campus Music Fest</h4>
+                  <p class="preview-meta">Nov 6 · 4:00 PM · Main Quad</p>
+                </div>
+              </div>
+              <div class="preview-event-card">
+                <div class="preview-event-image"></div>
+                <div class="preview-event-info">
+                  <span class="preview-category">Sports & Wellness</span>
+                  <h4>Yoga & Mindfulness</h4>
+                  <p class="preview-meta">Every Tue · 7:00 AM · Studio B</p>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
 
     <section class="landing-features" aria-labelledby="features-title">
-      <h2 id="features-title" class="section-title">Everything you need for campus life</h2>
+      <header class="section-header">
+        <h2 id="features-title">Everything you need for campus life</h2>
+        <p class="section-subtitle">Built by students, for students. No bloat, just what matters.</p>
+      </header>
       <div class="features-grid">
         <article class="feature-card">
-          <div class="feature-icon">◫</div>
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"/>
+              <line x1="16" y1="2" x2="16" y2="6"/>
+              <line x1="8" y1="2" x2="8" y2="6"/>
+              <line x1="3" y1="10" x2="21" y2="10"/>
+            </svg>
+          </div>
           <h3>Discover Events</h3>
-          <p>Browse campus events by category, date, or keyword. From tech talks to music nights.</p>
+          <p>Browse by category, date, or keyword. Smart filters for free events, this week, and more.</p>
         </article>
         <article class="feature-card">
-          <div class="feature-icon">▣</div>
-          <h3>My Events</h3>
-          <p>One-tap registration, digital entry passes, calendar sync, and easy cancellations.</p>
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+          </div>
+          <h3>Digital Entry Passes</h3>
+          <p>One-tap registration. QR codes for check-in. Calendar sync. Easy cancellations.</p>
         </article>
         <article class="feature-card">
-          <div class="feature-icon">♧</div>
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </div>
           <h3>Communities</h3>
           <p>Join interest-based groups. Find your makers, gamers, study buddies, or coffee crew.</p>
         </article>
         <article class="feature-card">
-          <div class="feature-icon">✦</div>
-          <h3>For Organizers</h3>
-          <p>Create events, manage registrations, view attendee lists, and track capacity.</p>
-        </article>
-        <article class="feature-card">
-          <div class="feature-icon">▦</div>
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
           <h3>Calendar View</h3>
           <p>Visual monthly calendar. See what's happening this week at a glance.</p>
         </article>
         <article class="feature-card">
-          <div class="feature-icon">⌖</div>
-          <h3>Smart Filters</h3>
-          <p>Filter by category, date range, free events, and search across all details.</p>
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </div>
+          <h3>For Organizers</h3>
+          <p>Create events, manage registrations, view attendee lists, track capacity in real-time.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </div>
+          <h3>Smart Search & Filters</h3>
+          <p>Filter by category, date range, price, capacity. Search across titles, descriptions, locations.</p>
         </article>
       </div>
     </section>
 
-    <section class="landing-testimonials" aria-labelledby="testimonials-title">
-      <h2 id="testimonials-title" class="section-title">Built for students, by students</h2>
-      <div class="testimonials-grid">
-        <blockquote class="testimonial">
-          <p>"Finally, a single place to see everything happening on campus. No more missing out!"</p>
-          <footer>— Jamie, Junior</footer>
-        </blockquote>
-        <blockquote class="testimonial">
-          <p>"Creating events is so easy. I posted our hackathon and got 200 signups in a day."</p>
-          <footer>— Alex, Club President</footer>
-        </blockquote>
-        <blockquote class="testimonial">
-          <p>"The communities feature helped me find my study group. We meet every Tuesday now."</p>
-          <footer>— Sam, Sophomore</footer>
-        </blockquote>
+    <section class="landing-workflow" aria-labelledby="workflow-title">
+      <header class="section-header">
+        <h2 id="workflow-title">How it works</h2>
+        <p class="section-subtitle">Three steps from discovery to done.</p>
+      </header>
+      <div class="workflow-steps">
+        <article class="workflow-step">
+          <div class="step-number">01</div>
+          <h3>Discover</h3>
+          <p>Browse events by category, search by keyword, filter by date or price. Save interesting ones for later.</p>
+        </article>
+        <article class="workflow-step">
+          <div class="step-number">02</div>
+          <h3>Register</h3>
+          <p>One click to reserve your spot. Get a digital entry pass with QR code. Add to calendar automatically.</p>
+        </article>
+        <article class="workflow-step">
+          <div class="step-number">03</div>
+          <h3>Show Up</h3>
+          <p>Check in with your pass. Meet your people. Build your campus story. Repeat next week.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="landing-organizers" aria-labelledby="organizers-title">
+      <div class="organizers-content">
+        <header class="section-header">
+          <h2 id="organizers-title">Built for organizers, too</h2>
+          <p class="section-subtitle">Create events in minutes. Manage everything from one dashboard.</p>
+        </header>
+        <div class="organizers-grid">
+          <div class="organizer-feature">
+            <h4>Event Creation</h4>
+            <p>Rich forms with date/time, location, capacity, pricing, descriptions, and custom images.</p>
+          </div>
+          <div class="organizer-feature">
+            <h4>Real-time Dashboard</h4>
+            <p>Track registrations, view attendee lists, monitor capacity, export data.</p>
+          </div>
+          <div class="organizer-feature">
+            <h4>Admin Panel</h4>
+            <p>System-wide stats, user management, event oversight, registration analytics.</p>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -112,7 +231,7 @@
       <h2 id="cta-title">Ready to connect?</h2>
       <p>Join thousands of students making campus feel like home.</p>
       <div class="landing-cta">
-        <button class="landing-btn primary large" id="landing-final-signup">Get Started Free <span>↗</span></button>
+        <button class="landing-btn primary large" id="landing-final-signup">Get Started Free</button>
       </div>
     </section>
 
@@ -122,6 +241,7 @@
         <a href="#about">About</a>
         <a href="#privacy">Privacy</a>
         <a href="#terms">Terms</a>
+        <a href="https://github.com/ArihantK15/campus-connect" target="_blank" rel="noopener">GitHub</a>
       </nav>
     </footer>
   </main>
@@ -130,91 +250,114 @@
   <div id="app-shell" class="app-shell" hidden>
     <aside class="sidebar">
       <a class="brand" href="#discover" aria-label="Campus Connect home">
-        <span class="brand-icon">c<span>c</span></span>
-        <span>campus<span class="brand-second">connect<span class="brand-dot">.</span></span></span>
+        <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+          <circle cx="16" cy="16" r="14" stroke="currentColor" stroke-width="2"/>
+          <path d="M10 16l4 4 8-8" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <span>Campus Connect</span>
       </a>
       <div class="campus-select">
-        <span class="campus-icon">▥</span>
+        <svg class="campus-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
         <div>Westbridge University<small>Your campus community</small></div>
       </div>
       <div class="nav-label">YOUR CAMPUS, CONNECTED</div>
       <nav aria-label="Main navigation">
         <button class="nav-item active" data-page="discover" data-short="Explore" aria-label="Discover events" title="Discover events">
-          <span>◫</span> Discover events <span class="nav-arrow">↗</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          Discover events
         </button>
         <button class="nav-item" data-page="registered" data-short="My events" aria-label="My events" title="My events">
-          <span>▣</span> My events <span class="count" id="event-count">0</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          My events <span class="count" id="event-count">0</span>
         </button>
         <button class="nav-item" data-page="saved" data-short="Saved" aria-label="Saved events" title="Saved events">
-          <span>♧</span> Saved events
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+          Saved events
         </button>
         <button class="nav-item" data-page="communities" data-short="Groups" aria-label="Communities" title="Communities">
-          <span>♧</span> Communities <span class="new">NEW</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Communities
         </button>
       </nav>
       <div class="sidebar-note">
-        <span class="sparkle">✳</span>
+        <svg class="sparkle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
         <h3>Good things happen<br>when you show up.</h3>
         <p>Meet your people. Try something<br>new. Make campus yours.</p>
-        <button id="explore-btn">Explore what's happening <span>↗</span></button>
+        <button id="explore-btn">Explore what's happening</button>
       </div>
       <div class="sidebar-bottom">
-        <button id="help-btn" aria-label="Help and how it works" title="Help and how it works">ⓘ <span>Help & how it works</span> ↗</button>
-        <div class="sidebar-footer">Made for your campus life <span>✳</span></div>
+        <button id="help-btn" aria-label="Help and how it works" title="Help and how it works">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          <span>Help & how it works</span>
+        </button>
+        <div class="sidebar-footer">Made for your campus life</div>
       </div>
     </aside>
     <div class="app">
       <header>
         <div class="breadcrumb">Your campus <span>/</span> <b id="breadcrumb">Discover events</b></div>
         <div class="header-right">
-          <span class="live-dot"></span>
+          <span class="live-dot" aria-hidden="true"></span>
           <span class="semester">Fall semester 2026</span>
-          <button class="notification" aria-label="Notifications" id="notification-btn">♧<i></i></button>
-          <button class="profile" id="profile-btn" aria-label="Log in or sign up">
-            <span id="avatar" aria-hidden="true">↗</span>
+          <button class="notification" aria-label="Notifications" id="notification-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18c0 0-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            <span class="notification-badge" hidden></span>
+          </button>
+          <button class="profile" id="profile-btn" aria-label="Your profile">
+            <span id="avatar" aria-hidden="true"></span>
             <span id="profile-name">Log in / Sign up</span>
-            <span>⌄</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
       </header>
       <main id="main-content">
         <section class="page-intro">
           <div>
-            <div class="eyebrow">A LITTLE CURIOSITY. A LOT OF POSSIBILITY.</div>
+            <div class="eyebrow">DISCOVER</div>
             <h1>Find your people.<span> Make your plans.</span></h1>
             <p>Discover the moments that make campus feel like home.</p>
           </div>
-          <div class="intro-doodle">✳<span>good times<br>start here ↙</span></div>
+          <div class="intro-doodle" aria-hidden="true">
+            <svg viewBox="0 0 100 100" fill="none" stroke="currentColor" stroke-width="1.5">
+              <circle cx="50" cy="50" r="40"/>
+              <path d="M50 30v20M40 40h20"/>
+            </svg>
+          </div>
         </section>
         <section class="hero">
-          <img src="assets/event-4.jpg" alt="Musicians performing live on stage">
+          <img src="assets/event-4.jpg" alt="Campus event preview">
           <div class="hero-shade"></div>
           <div class="hero-content">
-            <span class="featured-label"><span>✦</span> THE CAMPUS SPOTLIGHT</span>
+            <span class="featured-label"><span class="featured-dot" aria-hidden="true"></span> CAMPUS SPOTLIGHT</span>
             <h2>A little music.<br>A lot of memories.</h2>
             <p>Golden Hour: The Campus Music Fest</p>
             <div class="hero-meta">
-              <span>▦ &nbsp; Fri, Nov 6</span>
-              <span>◷ &nbsp; 4:00 PM onwards</span>
-              <span>⌖ &nbsp; The Main Quad</span>
+              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg> Fri, Nov 6</span>
+              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 4:00 PM onwards</span>
+              <span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg> The Main Quad</span>
             </div>
-            <button class="white-btn" id="hero-details">I'm in. Tell me more <span>↗</span></button>
+            <button class="primary-btn" id="hero-details">View Event Details</button>
           </div>
           <div class="hero-bottom">
-            <div class="attendee-stack">
-              <span>AJ</span><span>MK</span><span>SL</span><span>+</span>
+            <div class="attendee-stack" aria-label="240+ attendees">
+              <span>AJ</span><span>MK</span><span>SL</span><span>+237</span>
             </div>
-            <span><b>240+</b> students are going</span>
+            <span><strong>240+</strong> students going</span>
           </div>
-          <span class="hero-sticker">YOUR NEXT<br><b>“you had to<br>be there.”</b><span>✶</span></span>
         </section>
         <section class="events-section" aria-labelledby="section-title" id="events-heading" tabindex="-1">
           <div class="section-heading">
             <div>
-              <h2 id="section-title">Your next "why not?" <span>↘</span></h2>
+              <h2 id="section-title">Your next "why not?"</h2>
               <p id="section-description">A full calendar. A campus full of possibilities.</p>
             </div>
-            <button class="calendar-button" id="calendar-btn">▦ &nbsp; Calendar view</button>
+            <button class="calendar-button" id="calendar-btn">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Calendar view
+            </button>
           </div>
           <div class="filter-row">
             <div class="tabs" role="group" aria-label="Filter by category">
@@ -226,8 +369,11 @@
               <button data-category="General">General</button>
             </div>
             <div class="filter-tools">
-              <label class="search-box"><span>⌕</span><input id="search" placeholder="Find your thing..." aria-label="Search events"></label>
-              <button class="filter-btn" id="filter-btn" aria-label="Filter events" aria-expanded="false" aria-controls="filter-panel">☷ <span>Filters</span></button>
+              <label class="search-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input id="search" placeholder="Find your thing..." aria-label="Search events"></label>
+              <button class="filter-btn" id="filter-btn" aria-label="Filter events" aria-expanded="false" aria-controls="filter-panel">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg>
+                <span>Filters</span>
+              </button>
             </div>
           </div>
           <div id="filter-panel" hidden>
@@ -235,23 +381,25 @@
             <label><input id="free-filter" type="checkbox"> Free events only</label>
             <button id="reset-filter">Reset filters</button>
           </div>
-          <div class="result-summary"><span id="results-count" role="status" aria-live="polite"></span><button id="clear-filters" hidden>Clear all filters ×</button></div>
+          <div class="result-summary"><span id="results-count" role="status" aria-live="polite"></span><button id="clear-filters" hidden>Clear all filters</button></div>
           <div class="calendar-heading" id="calendar-heading" hidden><h3>Event calendar</h3><span>Event times are in campus local time.</span></div>
           <div class="events-grid" id="events-grid"></div>
-          <div class="empty-state" id="empty-state" hidden><span>✳</span><h3>Something good is around the corner.</h3><p id="empty-text">Try another category or clear your filters.</p><button class="primary-btn" id="empty-action">Explore all events</button></div>
-          <div class="bottom-note"><span>✳</span> Less scrolling. More showing up. <span class="end-line"></span> <span>You're in good company.</span></div>
+          <div class="empty-state" id="empty-state" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg><h3>Nothing here yet</h3><p id="empty-text">Check back soon for new events.</p><button class="primary-btn" id="empty-action">Explore all events</button></div>
+          <div class="bottom-note">Less scrolling. More showing up.</div>
         </section>
         <section class="community-banner">
-          <div class="community-mark">✳</div>
+          <svg class="community-mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
           <div><span>BETTER, TOGETHER.</span><h3>There's a community for every kind of you.</h3><p>Find your shared interests. Make some unexpected connections.</p></div>
-          <button id="community-btn">Find your community ↗</button>
+          <button id="community-btn">Find your community</button>
         </section>
-        <footer><span>© 2026 Campus Connect</span><span>A little more connected. A lot more you. <span>✳</span></span><button id="about-btn">About Campus Connect ↗</button></footer>
+        <footer><span>© 2026 Campus Connect</span><span>A little more connected. A lot more you.</span><button id="about-btn">About Campus Connect</button></footer>
       </main>
     </div>
     <div class="modal-backdrop" id="modal" hidden>
       <section class="modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabindex="-1">
-        <button class="modal-close" aria-label="Close dialog">×</button>
+        <button class="modal-close" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
         <div id="modal-content"></div>
       </section>
     </div>
@@ -259,6 +407,6 @@
     <noscript><p class="noscript">Please enable JavaScript to browse events and register.</p></noscript>
   </div>
 
-  <script type="module" src="app.js?v=6"></script>
+  <script type="module" src="app.js?v=7"></script>
 </body>
 </html>
