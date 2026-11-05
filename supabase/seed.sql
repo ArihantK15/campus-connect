@@ -15,19 +15,29 @@ on conflict (id) do update set
     email = excluded.email,
     role = excluded.role;
 
-insert into public.events (id, organiser_id, title, capacity, "timestamp")
+insert into public.events (id, organiser_id, title, capacity, "timestamp", description, location, price, image_url)
 values
     ('11111111-1111-4111-8111-111111111111', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-     'Product Builders Meetup', 120, '2027-02-18 18:30:00+05:30'),
+     'Product Builders Meetup', 120, '2027-02-18 18:30:00+05:30',
+     'Join fellow product builders for an evening of networking, talks, and collaboration. Whether you are a PM, designer, or engineer, this is your chance to connect with the product community.',
+     'Main Auditorium, Westbridge University', 0, 'assets/event-1.jpg'),
     ('22222222-2222-4222-8222-222222222222', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-     'Design Systems Workshop', 40, '2027-03-06 10:00:00+05:30'),
+     'Design Systems Workshop', 40, '2027-03-06 10:00:00+05:30',
+     'Hands-on workshop covering design tokens, component libraries, and documentation. Bring your laptop and leave with a working design system starter kit.',
+     'Design Lab, Building B', 0, 'assets/event-2.jpg'),
     ('33333333-3333-4333-8333-333333333333', 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-     'Open Source Community Night', 200, '2027-03-20 17:00:00+05:30')
+     'Open Source Community Night', 200, '2027-03-20 17:00:00+05:30',
+     'Celebrate open source with lightning talks, project showcases, and contributor meetups. All experience levels welcome. Pizza and drinks provided.',
+     'Student Union Hall', 0, 'assets/event-3.jpg')
 on conflict (id) do update set
     organiser_id = excluded.organiser_id,
     title = excluded.title,
     capacity = excluded.capacity,
-    "timestamp" = excluded."timestamp";
+    "timestamp" = excluded."timestamp",
+    description = excluded.description,
+    location = excluded.location,
+    price = excluded.price,
+    image_url = excluded.image_url;
 
 insert into public.registrations (id, user_id, event_id, "createdAt")
 values

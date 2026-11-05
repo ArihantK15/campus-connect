@@ -237,6 +237,76 @@ class CampusConnectAPI {
   async getEventRegistrations(eventId) {
     return this.fetch(`/events/${encodeURIComponent(eventId)}/registrations`, { auth: true });
   }
+
+  async createEvent(eventData) {
+    return this.fetch('/events', {
+      method: 'POST',
+      body: JSON.stringify(eventData),
+      auth: true,
+    });
+  }
+
+  async updateEvent(eventId, eventData) {
+    return this.fetch(`/events/${encodeURIComponent(eventId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(eventData),
+      auth: true,
+    });
+  }
+
+  async deleteEvent(eventId) {
+    return this.fetch(`/events/${encodeURIComponent(eventId)}`, {
+      method: 'DELETE',
+      auth: true,
+    });
+  }
+
+  // Admin API methods
+  async getAdminStats() {
+    return this.fetch('/admin/stats', { auth: true });
+  }
+
+  async getAdminUsers(page = 1, perPage = 20) {
+    return this.fetch(`/admin/users?page=${page}&per_page=${perPage}`, { auth: true });
+  }
+
+  async getAdminUser(userId) {
+    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, { auth: true });
+  }
+
+  async updateAdminUser(userId, role) {
+    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+      auth: true,
+    });
+  }
+
+  async deleteAdminUser(userId) {
+    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, {
+      method: 'DELETE',
+      auth: true,
+    });
+  }
+
+  async getAdminEvents(page = 1, perPage = 20) {
+    return this.fetch(`/admin/events?page=${page}&per_page=${perPage}`, { auth: true });
+  }
+
+  async getAdminEvent(eventId) {
+    return this.fetch(`/admin/events/${encodeURIComponent(eventId)}`, { auth: true });
+  }
+
+  async deleteAdminEvent(eventId) {
+    return this.fetch(`/admin/events/${encodeURIComponent(eventId)}`, {
+      method: 'DELETE',
+      auth: true,
+    });
+  }
+
+  async getAdminRegistrations(page = 1, perPage = 20) {
+    return this.fetch(`/admin/registrations?page=${page}&per_page=${perPage}`, { auth: true });
+  }
 }
 
 const api = new CampusConnectAPI();

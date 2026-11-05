@@ -14,15 +14,21 @@ function eventFromApi(record) {
  const imageNumber=Array.from(record.id).reduce((sum,char)=>sum+char.charCodeAt(0),0)%8+1;
  const title=record.title.trim();
  const category=/product|design|open source|acid|career|tech|build/i.test(title)?'Tech & Career':'General';
+ // Use new fields from API if available, otherwise fall back to defaults
+ const location = record.location && record.location.trim() ? record.location.trim() : 'Location to be announced';
+ const image = record.image_url && record.image_url.trim() ? record.image_url.trim() : `assets/event-${imageNumber}.jpg`;
+ const price = typeof record.price === 'number' && record.price >= 0 ? record.price : null;
+ const description = record.description && record.description.trim() ? record.description.trim() : 'The organizer has not added a description yet.';
+ const host = record.organiser_id ? 'Campus organizer' : 'Campus organizer';
  return {
-  id:record.id,title,subtitle:'Event details from the organizer will appear here.',
+  id:record.id,title,subtitle:description.slice(0,120)+(description.length>120?'…':''),
   category,day,month,year,dateKey,
   dateLabel:validDate?new Intl.DateTimeFormat('en-US',{timeZone:CAMPUS_TIME_ZONE,month:'short',day:'numeric',year:'numeric'}).format(validDate):'Date to be announced',
   monthLabel:validDate?new Intl.DateTimeFormat('en-US',{timeZone:CAMPUS_TIME_ZONE,month:'long',year:'numeric'}).format(validDate):'Date to be announced',
   time:validDate?new Intl.DateTimeFormat('en-US',{timeZone:CAMPUS_TIME_ZONE,hour:'numeric',minute:'2-digit'}).format(validDate):'Time to be announced',
-  location:'Location to be announced',image:`assets/event-${imageNumber}.jpg`,
+  location,image,
   going:null,capacity:Number.isInteger(record.capacity)&&record.capacity>=0?record.capacity:null,
-  price:null,host:'Campus organizer',description:'The organizer has not added a description yet.',
+  price,host,description,
   timestamp:validDate?validDate.toISOString():null
  };
 }
@@ -381,7 +387,33 @@ $('#empty-action').onclick=()=>{if(eventsLoadFailed){loadEvents();return;}if(has
 $('#hero-details').onclick=()=>{const feature=events.find(event=>event.timestamp)||events[0];if(feature)detail(feature.id);else toast('No events are available yet.');};
 $('#profile-btn').onclick=()=>{
  if(!user){auth();return;}pending=null;
- openModal(`<div class="modal-body"><div class="auth-logo" aria-hidden="true">✳</div><h2>Hey, ${esc(user.name)}.</h2><p>${esc(user.email)}</p><p>You have ${registered.length} registered event${registered.length===1?'':'s'}, ${saved.length} saved event${saved.length===1?'':'s'}, and ${joined.length} communit${joined.length===1?'y':'ies'}.</p><p class="auth-note">Your registration is linked to your Supabase account. Saved events and community preferences stay in this browser.</p><button class="primary-btn" id="logout">Log out</button></div>`);
+ const isOrganizer = user.role === 'organizer' || user.role === 'admin';
+ openModal(`<div class="modal-body"><div class="auth-logo" aria-hidden="true">✳</div><h2>Hey, ${esc(user.name)}.</h2><p>${esc(user.email)}</p><p>You have ${registered.length} registered event${registered.length===1?'':'s'}, ${saved.length} saved event${saved.length===1?'':'s'}, and ${joined.length} communit${joined.length===1?'y':'ies'}.</p>
+ ${isOrganizer ? `<p class="auth-note">Your registration is linked to your Supabase account. Saved events and community preferences stay in this browser.</p>
+ <button class="primary-btn" id="create-event-btn">${icon('spark')} Create Event</button>
+ <button class="secondary-btn" id="organizer-dashboard-btn">${icon('calendar')} Organizer Dashboard</button>
+ ${user.role === 'admin' ? `<button class="secondary-btn" id="admin-dashboard-btn">${icon('campus')} Admin Dashboard</button>` : ''}
+ <button class="primary-btn" id="logout">Log out</button>` : `<p class="auth-note">Your registration is linked to your Supabase account. Saved events and community preferences stay in this browser.</p>
+ <button class="primary-btn" id="logout">Log out</button>`}
+</div>`);
+ 
+ if (isOrganizer) {
+  $('#create-event-btn').onclick = () => {
+   closeModal();
+   openEventForm();
+  };
+  $('#organizer-dashboard-btn').onclick = () => {
+   closeModal();
+   openOrganizerDashboard();
+  };
+  if (user.role === 'admin') {
+   $('#admin-dashboard-btn').onclick = () => {
+    closeModal();
+    openAdminDashboard();
+   };
+  }
+ }
+ 
  $('#logout').onclick=async()=>{
   const button=$('#logout');button.disabled=true;let signOutFailed=false;
   try {await api.signOut();}
@@ -409,6 +441,493 @@ document.querySelectorAll('[data-page]').forEach(button=>{button.querySelector('
 $('#notification-btn').innerHTML=icon('bell');$('.search-box>span').innerHTML=icon('search');$('#filter-btn').innerHTML=icon('filter')+'<span>Filters</span>';$('.modal-close').innerHTML=icon('close');
 // A missing remote photo must not show a broken-image glyph or hide event text.
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement){event.target.hidden=true;event.target.parentElement.classList.add('image-unavailable');}},true);
+
+// Event creation/edit form
+function openEventForm(eventToEdit = null) {
+ const isEdit = !!eventToEdit;
+ const e = eventToEdit || {};
+ const today = new Date();
+ const defaultDate = e.timestamp ? new Date(e.timestamp) : new Date(today.getTime() + 7*24*60*60*1000);
+ const dateStr = defaultDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+ 
+ openModal(`<div class="modal-body event-form-modal">
+  <span class="category-label">${isEdit ? 'EDIT EVENT' : 'CREATE EVENT'}</span>
+  <h2>${isEdit ? 'Update your event' : 'Create a new event'}</h2>
+  <form id="event-form">
+   <input type="hidden" name="event_id" value="${esc(e.id || '')}">
+   <label class="form-field">Event Title<input name="title" placeholder="Product Builders Meetup" value="${esc(e.title || '')}" required maxlength="120"></label>
+   <label class="form-field">Date & Time<input name="timestamp" type="datetime-local" value="${esc(dateStr)}" required></label>
+   <label class="form-field">Location<input name="location" placeholder="Main Auditorium, Westbridge University" value="${esc(e.location || '')}" maxlength="200"></label>
+   <label class="form-field">Capacity (optional)<input name="capacity" type="number" min="0" placeholder="120" value="${esc(e.capacity !== null && e.capacity !== undefined ? e.capacity : '')}"></label>
+   <label class="form-field">Price (USD)<input name="price" type="number" min="0" step="0.01" placeholder="0" value="${esc(e.price !== null && e.price !== undefined ? e.price : '0')}"></label>
+   <label class="form-field">Image URL (optional)<input name="image_url" type="url" placeholder="assets/event-1.jpg or https://..." value="${esc(e.image_url || '')}"></label>
+   <label class="form-field">Description<textarea name="description" rows="4" placeholder="Tell attendees what this event is about...">${esc(e.description || '')}</textarea></label>
+   <p id="event-form-error" class="form-error" role="alert" hidden></p>
+   <div class="form-actions">
+    <button type="button" class="secondary-btn" id="cancel-event-form">Cancel</button>
+    <button type="submit" class="primary-btn">${isEdit ? 'Save Changes' : 'Create Event'} ${icon('arrow')}</button>
+   </div>
+  </form>
+ </div>`);
+ 
+ $('#cancel-event-form').onclick = () => closeModal();
+ 
+ $('#event-form').onsubmit = async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const submit = form.querySelector('[type="submit"]');
+  if (submit.disabled) return;
+  
+  const data = new FormData(form);
+  const eventId = data.get('event_id');
+  const isEdit = !!eventId;
+  
+  const eventData = {
+   title: String(data.get('title') || '').trim(),
+   timestamp: String(data.get('timestamp') || ''),
+   location: String(data.get('location') || '').trim() || null,
+   capacity: data.get('capacity') ? parseInt(data.get('capacity'), 10) : null,
+   price: data.get('price') ? parseFloat(data.get('price')) : 0,
+   image_url: String(data.get('image_url') || '').trim() || null,
+   description: String(data.get('description') || '').trim() || null,
+  };
+  
+  // Validation
+  if (!eventData.title) {
+   showError('Event title is required.');
+   return;
+  }
+  if (!eventData.timestamp) {
+   showError('Date & time is required.');
+   return;
+  }
+  if (eventData.capacity !== null && (isNaN(eventData.capacity) || eventData.capacity < 0)) {
+   showError('Capacity must be a non-negative number.');
+   return;
+  }
+  if (isNaN(eventData.price) || eventData.price < 0) {
+   showError('Price must be a non-negative number.');
+   return;
+  }
+  
+  const showError = (message) => {
+   const errorEl = $('#event-form-error');
+   errorEl.textContent = message;
+   errorEl.hidden = false;
+  };
+  
+  submit.disabled = true;
+  submit.textContent = isEdit ? 'Saving…' : 'Creating…';
+  $('#event-form-error').hidden = true;
+  
+  try {
+   let result;
+   if (isEdit) {
+    result = await api.updateEvent(eventId, eventData);
+   } else {
+    result = await api.createEvent(eventData);
+   }
+   closeModal();
+   toast(isEdit ? 'Event updated successfully!' : 'Event created successfully!');
+   await loadEvents();
+  } catch (error) {
+   console.error('Event form error:', error);
+   if (error.status === 401 || error.status === 403) {
+    api.clearSession();
+    showError('Your session expired. Please sign in again.');
+   } else {
+    showError(error.message || 'Failed to save event. Please try again.');
+   }
+  } finally {
+   if (form.isConnected) {
+    submit.disabled = false;
+    submit.textContent = isEdit ? 'Save Changes' + ' ' + icon('arrow') : 'Create Event' + ' ' + icon('arrow');
+   }
+  }
+ };
+}
+
+// Organizer Dashboard
+function openOrganizerDashboard() {
+ openModal(`<div class="modal-body organizer-dashboard-modal" style="max-width: 900px; max-height: 80vh; overflow-y: auto;">
+  <span class="category-label">ORGANIZER DASHBOARD</span>
+  <h2>Your Events</h2>
+  <div id="organizer-stats" class="organizer-stats">Loading…</div>
+  <div class="organizer-actions">
+   <button class="primary-btn" id="create-event-from-dashboard">${icon('spark')} Create New Event</button>
+  </div>
+  <div id="organizer-events" class="organizer-events">Loading…</div>
+ </div>`);
+ 
+ loadOrganizerDashboard();
+ 
+ $('#create-event-from-dashboard').onclick = () => {
+  closeModal();
+  openEventForm();
+ };
+}
+
+async function loadOrganizerDashboard() {
+ if (!user) return;
+ 
+ try {
+  // Get organizer's events
+  const eventsResponse = await api.fetch(`/events?organiser_id=${user.id}`, { auth: true });
+  const events = eventsResponse || [];
+  
+  // Get registration counts for each event
+  const eventIds = events.map(e => e.id);
+  let registrationCounts = {};
+  
+  if (eventIds.length > 0) {
+   // Fetch registrations for all events
+   const regsResponse = await api.fetch(`/me/registrations`, { auth: true });
+   const myRegs = regsResponse || [];
+   // Count registrations per event
+   myRegs.forEach(reg => {
+    registrationCounts[reg.event_id] = (registrationCounts[reg.event_id] || 0) + 1;
+   });
+  }
+  
+  // Render stats
+  const totalEvents = events.length;
+  const totalRegistrations = Object.values(registrationCounts).reduce((a, b) => a + b, 0);
+  const upcomingEvents = events.filter(e => e.timestamp && new Date(e.timestamp) > new Date()).length;
+  
+  $('#organizer-stats').innerHTML = `
+   <div class="stat-card"><h3>${totalEvents}</h3><p>Total Events</p></div>
+   <div class="stat-card"><h3>${totalRegistrations}</h3><p>Total Registrations</p></div>
+   <div class="stat-card"><h3>${upcomingEvents}</h3><p>Upcoming Events</p></div>
+  `;
+  
+  // Render events table
+  if (events.length === 0) {
+   $('#organizer-events').innerHTML = `
+    <div class="empty-dashboard">
+     <p>You haven't created any events yet.</p>
+     <button class="primary-btn" id="create-first-event">${icon('spark')} Create Your First Event</button>
+    </div>
+   `;
+   $('#create-first-event').onclick = () => {
+    closeModal();
+    openEventForm();
+   };
+   return;
+  }
+  
+  $('#organizer-events').innerHTML = `
+   <table class="organizer-table">
+    <thead>
+     <tr><th>Event</th><th>Date & Time</th><th>Location</th><th>Capacity</th><th>Registrations</th><th>Status</th><th>Actions</th></tr>
+    </thead>
+    <tbody>
+     ${events.map(e => {
+      const regCount = registrationCounts[e.id] || 0;
+      const isPast = e.timestamp && new Date(e.timestamp) < new Date();
+      const isFull = e.capacity && regCount >= e.capacity;
+      let statusClass = 'upcoming';
+      let statusText = 'Upcoming';
+      if (isPast) { statusClass = 'past'; statusText = 'Past'; }
+      else if (isFull) { statusClass = 'full'; statusText = 'Full'; }
+      
+      return `
+       <tr data-event-id="${esc(e.id)}">
+        <td><strong>${esc(e.title)}</strong></td>
+        <td>${e.timestamp ? new Date(e.timestamp).toLocaleString() : 'TBA'}</td>
+        <td>${esc(e.location || 'TBA')}</td>
+        <td>${e.capacity !== null ? e.capacity : 'Unlimited'}</td>
+        <td>${regCount}${e.capacity ? ' / ' + e.capacity : ''}</td>
+        <td><span class="status-badge status-${statusClass}">${statusText}</span></td>
+        <td>
+         <button class="secondary-btn edit-event-btn" data-event-id="${esc(e.id)}">${icon('chevron')} Edit</button>
+         <button class="danger-btn delete-event-btn" data-event-id="${esc(e.id)}">${icon('close')} Delete</button>
+         <button class="secondary-btn view-registrations-btn" data-event-id="${esc(e.id)}">${icon('people')} View Registrations</button>
+        </td>
+       </tr>
+      `;
+     }).join('')}
+    </tbody>
+   </table>
+  `;
+  
+  // Setup event actions
+  document.querySelectorAll('.edit-event-btn').forEach(btn => {
+   btn.onclick = async () => {
+    const eventId = btn.dataset.eventId;
+    try {
+     const event = await api.getEvent(eventId);
+     closeModal();
+     openEventForm(event);
+    } catch (error) {
+     console.error('Failed to load event:', error);
+     toast('Failed to load event.');
+    }
+   };
+  });
+  
+  document.querySelectorAll('.delete-event-btn').forEach(btn => {
+   btn.onclick = async () => {
+    const eventId = btn.dataset.eventId;
+    if (!confirm('Delete this event? This will also delete all registrations.')) return;
+    try {
+     await api.deleteEvent(eventId);
+     toast('Event deleted.');
+     loadOrganizerDashboard();
+    } catch (error) {
+     console.error('Failed to delete event:', error);
+     toast('Failed to delete event.');
+    }
+   };
+  });
+  
+  document.querySelectorAll('.view-registrations-btn').forEach(btn => {
+   btn.onclick = async () => {
+    const eventId = btn.dataset.eventId;
+    try {
+     const registrations = await api.getEventRegistrations(eventId);
+     const event = events.find(e => e.id === eventId);
+     showEventRegistrations(event, registrations);
+    } catch (error) {
+     console.error('Failed to load registrations:', error);
+     toast('Failed to load registrations.');
+    }
+   };
+  });
+  
+ } catch (error) {
+  console.error('Failed to load organizer dashboard:', error);
+  $('#organizer-stats').innerHTML = '<p class="form-error">Failed to load dashboard.</p>';
+  $('#organizer-events').innerHTML = '<p class="form-error">Failed to load events.</p>';
+ }
+}
+
+function showEventRegistrations(event, registrations) {
+ openModal(`<div class="modal-body registrations-modal" style="max-width: 700px; max-height: 80vh; overflow-y: auto;">
+  <span class="category-label">EVENT REGISTRATIONS</span>
+  <h2>${esc(event.title)}</h2>
+  <p>${registrations.length} registration${registrations.length !== 1 ? 's' : ''}</p>
+  <table class="registrations-table">
+   <thead><tr><th>Name</th><th>Email</th><th>Registered</th></tr></thead>
+   <tbody>
+    ${registrations.map(r => `
+     <tr>
+      <td>${esc(r.user_id)}</td>
+      <td>${esc(r.user_id)}</td>
+      <td>${r.createdAt ? new Date(r.createdAt).toLocaleString() : 'Unknown'}</td>
+     </tr>
+    `).join('')}
+   </tbody>
+  </table>
+  <button class="primary-btn" id="close-registrations">Close</button>
+ </div>`);
+ 
+ $('#close-registrations').onclick = () => {
+  closeModal();
+  openOrganizerDashboard();
+ };
+}
+
+// Admin Dashboard
+function openAdminDashboard() {
+ openModal(`<div class="modal-body admin-dashboard-modal" style="max-width: 900px; max-height: 80vh; overflow-y: auto;">
+  <span class="category-label">ADMIN DASHBOARD</span>
+  <h2>System Overview</h2>
+  <div id="admin-stats" class="admin-stats">Loading…</div>
+  <div class="admin-tabs">
+   <button class="admin-tab active" data-admin-tab="users">Users</button>
+   <button class="admin-tab" data-admin-tab="events">Events</button>
+   <button class="admin-tab" data-admin-tab="registrations">Registrations</button>
+  </div>
+  <div id="admin-content" class="admin-content">Loading…</div>
+ </div>`);
+ 
+ loadAdminStats();
+ loadAdminTab('users');
+ 
+ document.querySelectorAll('.admin-tab').forEach(btn => {
+  btn.onclick = () => {
+   document.querySelectorAll('.admin-tab').forEach(b => b.classList.remove('active'));
+   btn.classList.add('active');
+   loadAdminTab(btn.dataset.adminTab);
+  };
+ });
+}
+
+async function loadAdminStats() {
+ try {
+  const stats = await api.getAdminStats();
+  $('#admin-stats').innerHTML = `
+   <div class="stat-card"><h3>${stats.total_events}</h3><p>Total Events</p></div>
+   <div class="stat-card"><h3>${stats.total_registrations}</h3><p>Total Registrations</p></div>
+   <div class="stat-card"><h3>${stats.users.attendee || 0}</h3><p>Attendees</p></div>
+   <div class="stat-card"><h3>${stats.users.organizer || 0}</h3><p>Organizers</p></div>
+   <div class="stat-card"><h3>${stats.users.admin || 0}</h3><p>Admins</p></div>
+  `;
+ } catch (error) {
+  console.error('Failed to load admin stats:', error);
+  $('#admin-stats').innerHTML = '<p class="form-error">Failed to load statistics.</p>';
+ }
+}
+
+async function loadAdminTab(tab) {
+ const content = $('#admin-content');
+ content.innerHTML = 'Loading…';
+ 
+ try {
+  if (tab === 'users') {
+   const data = await api.getAdminUsers(1, 50);
+   content.innerHTML = renderAdminUsersTable(data.users);
+   setupAdminUserActions();
+  } else if (tab === 'events') {
+   const data = await api.getAdminEvents(1, 50);
+   content.innerHTML = renderAdminEventsTable(data.events);
+   setupAdminEventActions();
+  } else if (tab === 'registrations') {
+   const data = await api.getAdminRegistrations(1, 50);
+   content.innerHTML = renderAdminRegistrationsTable(data.registrations);
+  }
+ } catch (error) {
+  console.error('Failed to load admin tab:', error);
+  content.innerHTML = '<p class="form-error">Failed to load data.</p>';
+ }
+}
+
+function renderAdminUsersTable(users) {
+ if (!users.length) return '<p>No users found.</p>';
+ return `
+  <table class="admin-table">
+   <thead><tr><th>ID</th><th>Email</th><th>Role</th><th>Actions</th></tr></thead>
+   <tbody>
+    ${users.map(u => `
+     <tr data-user-id="${esc(u.id)}">
+      <td>${esc(u.id.slice(0,8))}…</td>
+      <td>${esc(u.email)}</td>
+      <td><span class="role-badge role-${u.role}">${esc(u.role)}</span></td>
+      <td>
+       <select class="role-select" data-user-id="${esc(u.id)}">
+        <option value="attendee" ${u.role==='attendee'?'selected':''}>Attendee</option>
+        <option value="organizer" ${u.role==='organizer'?'selected':''}>Organizer</option>
+        <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+       </select>
+       <button class="danger-btn delete-user-btn" data-user-id="${esc(u.id)}" ${u.role==='admin'?'disabled':''}>Delete</button>
+      </td>
+     </tr>
+    `).join('')}
+   </tbody>
+  </table>
+ `;
+}
+
+function renderAdminEventsTable(events) {
+ if (!events.length) return '<p>No events found.</p>';
+ return `
+  <table class="admin-table">
+   <thead><tr><th>ID</th><th>Title</th><th>Organizer</th><th>Date</th><th>Capacity</th><th>Registrations</th><th>Actions</th></tr></thead>
+   <tbody>
+    ${events.map(e => `
+     <tr data-event-id="${esc(e.id)}">
+      <td>${esc(e.id.slice(0,8))}…</td>
+      <td>${esc(e.title)}</td>
+      <td>${esc(e.organiser_email || 'Unknown')}</td>
+      <td>${e.timestamp ? new Date(e.timestamp).toLocaleDateString() : 'TBA'}</td>
+      <td>${e.capacity !== null ? e.capacity : 'Unlimited'}</td>
+      <td>${e.registration_count || 0}</td>
+      <td>
+       <button class="secondary-btn edit-event-btn" data-event-id="${esc(e.id)}">Edit</button>
+       <button class="danger-btn delete-event-btn" data-event-id="${esc(e.id)}">Delete</button>
+      </td>
+     </tr>
+    `).join('')}
+   </tbody>
+  </table>
+ `;
+}
+
+function renderAdminRegistrationsTable(registrations) {
+ if (!registrations.length) return '<p>No registrations found.</p>';
+ return `
+  <table class="admin-table">
+   <thead><tr><th>ID</th><th>Event</th><th>User</th><th>Date</th></tr></thead>
+   <tbody>
+    ${registrations.map(r => `
+     <tr>
+      <td>${esc(r.id.slice(0,8))}…</td>
+      <td>${esc(r.event_title)}</td>
+      <td>${esc(r.user_email)}</td>
+      <td>${r.createdAt ? new Date(r.createdAt).toLocaleDateString() : 'Unknown'}</td>
+     </tr>
+    `).join('')}
+   </tbody>
+  </table>
+ `;
+}
+
+function setupAdminUserActions() {
+ document.querySelectorAll('.role-select').forEach(select => {
+  select.onchange = async (e) => {
+   const userId = e.target.dataset.userId;
+   const newRole = e.target.value;
+   try {
+    await api.updateAdminUser(userId, newRole);
+    toast('User role updated.');
+    loadAdminStats();
+   } catch (error) {
+    console.error('Failed to update user role:', error);
+    toast('Failed to update role.');
+    loadAdminTab('users'); // Reset dropdown
+   }
+  };
+ });
+ 
+ document.querySelectorAll('.delete-user-btn').forEach(btn => {
+  btn.onclick = async () => {
+   const userId = btn.dataset.userId;
+   if (!confirm('Delete this user? This cannot be undone.')) return;
+   try {
+    await api.deleteAdminUser(userId);
+    toast('User deleted.');
+    loadAdminStats();
+    loadAdminTab('users');
+   } catch (error) {
+    console.error('Failed to delete user:', error);
+    toast('Failed to delete user.');
+   }
+  };
+ });
+}
+
+function setupAdminEventActions() {
+ document.querySelectorAll('.edit-event-btn').forEach(btn => {
+  btn.onclick = async () => {
+   const eventId = btn.dataset.eventId;
+   try {
+    const event = await api.getAdminEvent(eventId);
+    closeModal();
+    openEventForm(event);
+   } catch (error) {
+    console.error('Failed to load event:', error);
+    toast('Failed to load event.');
+   }
+  };
+ });
+ 
+ document.querySelectorAll('.delete-event-btn').forEach(btn => {
+  btn.onclick = async () => {
+   const eventId = btn.dataset.eventId;
+   if (!confirm('Delete this event? This will also delete all registrations.')) return;
+   try {
+    await api.deleteAdminEvent(eventId);
+    toast('Event deleted.');
+    loadAdminStats();
+    loadAdminTab('events');
+   } catch (error) {
+    console.error('Failed to delete event:', error);
+    toast('Failed to delete event.');
+   }
+  };
+ });
+}
+
 $('#results-count').textContent='Loading events…';
 async function startApp() {
  try {
