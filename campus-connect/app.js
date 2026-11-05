@@ -1,5 +1,9 @@
 import api from './api.js';
 
+// Landing page elements (declared early for closeModal access)
+let landingPage = null;
+let appShell = null;
+
 const events=[];
 const CAMPUS_TIME_ZONE='Asia/Kolkata';
 function eventFromApi(record) {
@@ -443,7 +447,7 @@ function normalizeIcons(root) {
 }
 normalizeIcons(document.body);
 // Navigation icons are now inline SVGs in HTML, no need to replace
-$('#notification-btn').innerHTML=icon('bell');$('.search-box>span').innerHTML=icon('search');$('#filter-btn').innerHTML=icon('filter')+'<span>Filters</span>';$('.modal-close').innerHTML=icon('close');
+$('#notification-btn').innerHTML=icon('bell');$('#filter-btn').innerHTML=icon('filter')+'<span>Filters</span>';$('.modal-close').innerHTML=icon('close');
 // A missing remote photo must not show a broken-image glyph or hide event text.
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement){event.target.hidden=true;event.target.parentElement.classList.add('image-unavailable');}},true);
 
@@ -935,9 +939,9 @@ function setupAdminEventActions() {
 
 $('#results-count').textContent='Loading events…';
 
-// Landing page elements
-const landingPage = $('#landing-page');
-const appShell = $('#app-shell');
+// Landing page elements (assign to already declared variables)
+landingPage = $('#landing-page');
+appShell = $('#app-shell');
 const landingLoginBtn = $('#landing-login');
 const landingSignupBtn = $('#landing-signup');
 const landingCtaSignup = $('#landing-cta-signup');
@@ -945,15 +949,19 @@ const landingCtaLogin = $('#landing-cta-login');
 const landingFinalSignup = $('#landing-final-signup');
 
 function showLandingPage() {
-  landingPage.hidden = false;
-  appShell.hidden = true;
-  document.body.classList.add('landing-mode');
+  if (landingPage && appShell) {
+    landingPage.hidden = false;
+    appShell.hidden = true;
+    document.body.classList.add('landing-mode');
+  }
 }
 
 function showAppShell() {
-  landingPage.hidden = true;
-  appShell.hidden = false;
-  document.body.classList.remove('landing-mode');
+  if (landingPage && appShell) {
+    landingPage.hidden = true;
+    appShell.hidden = false;
+    document.body.classList.remove('landing-mode');
+  }
 }
 
 // Landing page button handlers - open auth modal but stay on landing page until auth succeeds
