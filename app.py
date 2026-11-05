@@ -1,882 +1,803 @@
-import base64
-import binascii
-import json
+"""Campus Connect: a self-contained Flask API that also serves the frontend.
+
+There is no sign-in. The browser picks a user from the top-right switcher and
+sends that user's id in the ``X-User-Id`` header; role rules (attendee,
+organizer, admin) are applied to the chosen user. Data lives in SQLite, so the
+app needs no external services. Set ``DATABASE_PATH`` to choose where the
+database file is stored.
+"""
+
 import math
 import os
+import sqlite3
+import uuid
+from contextlib import closing, contextmanager
+from datetime import datetime, timezone
 from functools import wraps
 from pathlib import Path
-from uuid import UUID
+from posixpath import normpath
+from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
-from flask import Flask, g, jsonify, request, send_from_directory
-from httpx import HTTPError
-from postgrest import APIError
-from supabase import Client, create_client
-from supabase_auth.errors import AuthApiError, AuthError
+from flask import Flask, current_app, g, jsonify, request, send_from_directory
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 load_dotenv(PROJECT_ROOT / ".env")
 
-app = Flask(__name__, static_folder=str(PROJECT_ROOT / "campus-connect"), static_url_path="")
+FRONTEND_DIR = PROJECT_ROOT / "campus-connect"
+ROLES = ("attendee", "organizer", "admin")
+CAMPUS_TIME_ZONE = ZoneInfo(os.environ.get("CAMPUS_TIME_ZONE", "Asia/Kolkata"))
+EVENT_SELECT = """
+    SELECT e.id, e.organiser_id, u.name AS organiser_name, u.email AS organiser_email,
+           e.title, e.capacity, e.timestamp, e.description, e.location, e.price,
+           e.image_url, e.created_at
+    FROM events e
+    JOIN users u ON u.id = e.organiser_id
+"""
+EVENT_FIELDS = ("title", "capacity", "timestamp", "description", "location", "price", "image_url")
+SEED_NAMESPACE = uuid.UUID("3c9f7d52-8a4e-4f1b-9d7c-2b6e1a0f5c11")
 
-supabase_public: Client | None = None
-supabase: Client | None = None
-SUPABASE_URL = os.environ.get("SUPABASE_URL")
-SUPABASE_PUBLISHABLE_KEY = os.environ.get("SUPABASE_PUBLISHABLE_KEY") or os.environ.get("SUPABASE_KEY")
-SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+
+class ApiError(Exception):
+    """An expected failure that maps to a JSON error response."""
+
+    def __init__(self, message, status=400):
+        super().__init__(message)
+        self.message = message
+        self.status = status
 
 
-def is_service_role_key(value: str | None) -> bool:
-    if not value:
-        return False
-    if value == SUPABASE_SERVICE_ROLE_KEY or value.startswith("sb_secret_"):
-        return True
-    parts = value.split(".")
-    if len(parts) != 3:
-        return False
+def error_response(message, status):
+    return jsonify({"error": message}), status
+
+
+def now_iso():
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def is_uuid(value):
     try:
-        payload = parts[1] + "=" * (-len(parts[1]) % 4)
-        claims = json.loads(base64.urlsafe_b64decode(payload))
-    except (binascii.Error, UnicodeDecodeError, ValueError):
-        return False
-    return isinstance(claims, dict) and claims.get("role") == "service_role"
-
-
-if SUPABASE_URL:
-    if SUPABASE_PUBLISHABLE_KEY and not is_service_role_key(SUPABASE_PUBLISHABLE_KEY):
-        supabase_public = create_client(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
-    if SUPABASE_SERVICE_ROLE_KEY:
-        supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-
-def database(client):
-    if client is None:
-        return jsonify({"error": "Supabase is not configured. Set SUPABASE_URL and the required API key."}), 503
-    return None
-
-
-def is_valid_uuid(value: str) -> bool:
-    try:
-        UUID(value)
+        uuid.UUID(str(value))
         return True
     except (ValueError, TypeError, AttributeError):
         return False
 
 
-def get_one(client: Client, table: str, columns: str, field: str, value: str):
-    """Fetch at most one row without PostgREST's maybe-single empty-result edge case."""
-    response = client.table(table).select(columns).eq(field, value).limit(1).execute()
-    return response.data[0] if response.data else None
+def connect(path):
+    connection = sqlite3.connect(path, timeout=10, isolation_level=None, check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode = WAL")
+    return connection
 
 
-def require_auth(view):
-    @wraps(view)
-    def authenticated_view(*args, **kwargs):
-        unavailable = database(supabase_public)
-        if unavailable:
-            return unavailable
-        unavailable = database(supabase)
-        if unavailable:
-            return unavailable
-
-        authorization = request.headers.get("Authorization", "")
-        scheme, separator, token = authorization.partition(" ")
-        if not separator or scheme.lower() != "bearer" or not token.strip():
-            return jsonify({"error": "A valid Supabase access token is required."}), 401
-
-        try:
-            response = supabase_public.auth.get_user(token.strip())
-            auth_user = response.user if response else None
-            if auth_user is None:
-                return jsonify({"error": "The Supabase session is invalid or expired."}), 401
-            if not auth_user.email_confirmed_at:
-                return jsonify({"error": "Verify your email address before continuing."}), 403
-
-            app_user = get_one(supabase, "users", "id,email,role,auth_user_id", "auth_user_id", str(auth_user.id))
-        except AuthApiError as error:
-            if error.status >= 500:
-                app.logger.error("Supabase Auth request failed (status=%s)", error.status)
-                return jsonify({"error": "Authentication service is unavailable."}), 503
-            return jsonify({"error": "The Supabase session is invalid or expired."}), 401
-        except AuthError:
-            return jsonify({"error": "The Supabase session is invalid or expired."}), 401
-        except APIError as error:
-            return api_error(error)
-        except HTTPError:
-            app.logger.warning("Supabase Auth is unreachable")
-            return jsonify({"error": "Authentication service is unavailable."}), 503
-
-        if app_user is None:
-            return jsonify({"error": "Your verified account is not linked to an application profile."}), 403
-
-        g.auth_user = auth_user
-        g.app_user = app_user
-        return view(*args, **kwargs)
-
-    return authenticated_view
+@contextmanager
+def transaction(connection):
+    """Run a write block atomically; BEGIN IMMEDIATE serialises concurrent registrations."""
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        yield connection
+    except BaseException:
+        connection.execute("ROLLBACK")
+        raise
+    else:
+        connection.execute("COMMIT")
 
 
-def require_admin(view):
-    """Require a verified, linked account with the database-backed admin role."""
-    @require_auth
-    @wraps(view)
-    def admin_view(*args, **kwargs):
-        if g.app_user.get("role") != "admin":
-            return jsonify({"error": "Admin access required."}), 403
-        return view(*args, **kwargs)
-    return admin_view
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    role TEXT NOT NULL CHECK (role IN ('attendee', 'organizer', 'admin')),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+    id TEXT PRIMARY KEY,
+    organiser_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    title TEXT NOT NULL,
+    capacity INTEGER CHECK (capacity IS NULL OR capacity >= 0),
+    timestamp TEXT,
+    description TEXT,
+    location TEXT,
+    price REAL CHECK (price IS NULL OR price >= 0),
+    image_url TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS events_organiser_idx ON events(organiser_id);
+CREATE TABLE IF NOT EXISTS registrations (
+    id TEXT PRIMARY KEY,
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    UNIQUE (event_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS registrations_user_idx ON registrations(user_id);
+CREATE TABLE IF NOT EXISTS saved_events (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    event_id TEXT NOT NULL REFERENCES events(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, event_id)
+);
+CREATE TABLE IF NOT EXISTS communities (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,
+    description TEXT NOT NULL,
+    icon TEXT NOT NULL,
+    base_members INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS community_memberships (
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    community_id INTEGER NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (user_id, community_id)
+);
+"""
+
+SEED_USERS = [
+    ("user-1", "Avery Patel", "avery@westbridge.edu", "attendee"),
+    ("user-2", "Maya Chen", "maya@westbridge.edu", "organizer"),
+    ("user-3", "Sam Rivera", "sam@westbridge.edu", "organizer"),
+    ("user-4", "Taylor Brooks", "taylor@westbridge.edu", "attendee"),
+    ("user-5", "Morgan Ellis", "morgan@westbridge.edu", "admin"),
+]
+SEED_EVENTS = [
+    ("evt-1", "user-2", "Product Builders Meetup", 90, "2026-11-12T18:30:00+05:30",
+     "Meet student founders, share what you are building, and find your next collaborator.",
+     "Main Auditorium", 0, "assets/event-1.jpg"),
+    ("evt-2", "user-2", "Campus Music Fest", 240, "2026-11-15T16:00:00+05:30",
+     "An afternoon of live sets, food stalls, and campus artists.",
+     "Main Quad", 5, "assets/event-2.jpg"),
+    ("evt-3", "user-2", "Yoga & Mindfulness", 30, "2026-11-18T07:00:00+05:30",
+     "A relaxed, all-levels session to start the day feeling grounded.",
+     "Studio B", 0, "assets/event-3.jpg"),
+    ("evt-4", "user-3", "Community Garden Day", 45, "2026-11-20T15:00:00+05:30",
+     "Plant, learn, and spend an easy afternoon outside with campus neighbors.",
+     "East Garden", 0, "assets/event-5.jpg"),
+]
+SEED_REGISTRATIONS = [("user-1", "evt-1"), ("user-1", "evt-4"), ("user-4", "evt-2")]
+SEED_SAVED = [("user-1", "evt-2"), ("user-4", "evt-1")]
+SEED_COMMUNITIES = [
+    (1, "The Makers Society", "For curious hands and creative minds. Pottery, art, design, and everything in between.", "discover", 128),
+    (2, "Campus Social Society", "Coffee dates, shared tables, and the friends you haven’t met yet.", "people", 342),
+    (3, "Campus Wellbeing Collective", "A little more movement. A little more balance. Find your feel-good community.", "check", 216),
+    (4, "Westbridge Developer Club", "Build things, share ideas, and meet your next project partner.", "calendar", 189),
+]
+SEED_MEMBERSHIPS = [("user-1", 1), ("user-1", 3), ("user-4", 2)]
 
 
-def pagination_args():
-    """Parse bounded admin pagination parameters without leaking ValueError."""
+def seed_database(connection):
+    """Populate a new database with the workshop's sample campus. Runs once, when no users exist."""
+    if connection.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
+        return
+    stamp = now_iso()
+    with transaction(connection):
+        for key, name, email, role in SEED_USERS:
+            connection.execute(
+                "INSERT INTO users (id, name, email, role, created_at) VALUES (?, ?, ?, ?, ?)",
+                (str(uuid.uuid5(SEED_NAMESPACE, key)), name, email, role, stamp),
+            )
+        for key, organiser, title, capacity, timestamp, description, location, price, image in SEED_EVENTS:
+            connection.execute(
+                """INSERT INTO events (id, organiser_id, title, capacity, timestamp, description, location, price, image_url, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    str(uuid.uuid5(SEED_NAMESPACE, key)),
+                    str(uuid.uuid5(SEED_NAMESPACE, organiser)),
+                    title,
+                    capacity,
+                    normalise_timestamp(timestamp),
+                    description,
+                    location,
+                    price,
+                    image,
+                    stamp,
+                ),
+            )
+        for community_id, name, description, icon, base in SEED_COMMUNITIES:
+            connection.execute(
+                "INSERT INTO communities (id, name, description, icon, base_members) VALUES (?, ?, ?, ?, ?)",
+                (community_id, name, description, icon, base),
+            )
+        for user_key, event_key in SEED_REGISTRATIONS:
+            connection.execute(
+                "INSERT INTO registrations (id, event_id, user_id, created_at) VALUES (?, ?, ?, ?)",
+                (str(uuid.uuid4()), seed_id(event_key), seed_id(user_key), stamp),
+            )
+        for user_key, event_key in SEED_SAVED:
+            connection.execute(
+                "INSERT INTO saved_events (user_id, event_id, created_at) VALUES (?, ?, ?)",
+                (seed_id(user_key), seed_id(event_key), stamp),
+            )
+        for user_key, community_id in SEED_MEMBERSHIPS:
+            connection.execute(
+                "INSERT INTO community_memberships (user_id, community_id, created_at) VALUES (?, ?, ?)",
+                (seed_id(user_key), community_id, stamp),
+            )
+
+
+def seed_id(key):
+    return str(uuid.uuid5(SEED_NAMESPACE, key))
+
+
+def normalise_timestamp(value):
+    """Store timestamps as UTC. Naive values are campus-local, which is what the event form sends."""
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Timestamp must be an ISO 8601 string or null.")
+    parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=CAMPUS_TIME_ZONE)
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def is_past(timestamp):
+    if not timestamp:
+        return False
+    return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < datetime.now(timezone.utc)
+
+
+def validate_image_url(value):
+    if not value:
+        return value
+    parsed = urlparse(value)
+    if parsed.scheme or parsed.netloc:
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            raise ValueError("image_url must use HTTP or HTTPS.")
+        return value
+    relative = normpath(value)
+    if not relative.startswith("assets/") or "\\" in value or parsed.query or parsed.fragment:
+        raise ValueError("image_url must be an HTTP(S) URL or a path under assets/.")
+    return value
+
+
+def parse_event(payload, *, partial=False):
+    """Validate event fields. Returns (data, None) or (None, ApiError)."""
+    if not isinstance(payload, dict):
+        return None, ApiError("A JSON object is required.", 400)
+    unknown = sorted(set(payload) - set(EVENT_FIELDS))
+    if unknown:
+        return None, ApiError(f"Unknown event field: {unknown[0]}.", 400)
+    data = {}
+    try:
+        if not partial or "title" in payload:
+            title = payload.get("title")
+            if not isinstance(title, str) or not title.strip():
+                raise ValueError("Title is required and cannot be empty.")
+            if len(title.strip()) > 120:
+                raise ValueError("Title must be 120 characters or fewer.")
+            data["title"] = title.strip()
+        if "capacity" in payload:
+            value = payload["capacity"]
+            if value is not None and (type(value) is not int or value < 0):
+                raise ValueError("Capacity must be a non-negative whole number or null.")
+            data["capacity"] = value
+        if "timestamp" in payload:
+            data["timestamp"] = normalise_timestamp(payload["timestamp"])
+        for field, limit in (("description", 2000), ("location", 200), ("image_url", 2048)):
+            if field in payload:
+                value = payload[field]
+                if value is not None and not isinstance(value, str):
+                    raise ValueError(f"{field} must be a string or null.")
+                value = value.strip() if isinstance(value, str) else None
+                if value and len(value) > limit:
+                    raise ValueError(f"{field} must be {limit} characters or fewer.")
+                data[field] = value or None
+        if "image_url" in data:
+            validate_image_url(data["image_url"])
+        if "price" in payload:
+            value = payload["price"]
+            if value is not None and (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError("Price must be a non-negative number or null.")
+            data["price"] = value
+    except (ValueError, TypeError) as error:
+        return None, ApiError(str(error), 400)
+    return data, None
+
+
+def parse_pagination():
     try:
         page = int(request.args.get("page", "1"))
         per_page = int(request.args.get("per_page", "20"))
-    except (TypeError, ValueError):
-        return None, (jsonify({"error": "page and per_page must be integers."}), 400)
+    except ValueError:
+        raise ApiError("page and per_page must be integers.", 400)
     if page < 1 or per_page < 1:
-        return None, (jsonify({"error": "page and per_page must be positive."}), 400)
+        raise ApiError("page and per_page must be positive.", 400)
     per_page = min(per_page, 100)
-    return (page, per_page, (page - 1) * per_page), None
+    return page, per_page, (page - 1) * per_page
 
 
-def validate_event_fields(payload, *, partial=False):
-    """Validate event fields shared by create and update routes."""
-    allowed_fields = {"title", "capacity", "timestamp", "description", "location", "price", "image_url"}
-    unknown = set(payload) - allowed_fields
-    if unknown:
-        return None, jsonify({"error": f"Unknown event field: {sorted(unknown)[0]}."}), 400
-    result = {}
-    if not partial or "title" in payload:
-        title = payload.get("title")
-        if not isinstance(title, str) or not title.strip():
-            return None, jsonify({"error": "Title is required and cannot be empty."}), 400
-        result["title"] = title.strip()
-    if "capacity" in payload:
-        value = payload["capacity"]
-        if value is not None and (type(value) is not int or value < 0):
-            return None, jsonify({"error": "Capacity must be a non-negative integer or null."}), 400
-        result["capacity"] = value
-    if "timestamp" in payload:
-        value = payload["timestamp"]
-        if value is not None:
-            if not isinstance(value, str):
-                return None, jsonify({"error": "Timestamp must be an ISO 8601 string or null."}), 400
-            try:
-                from datetime import datetime
-                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-            except ValueError:
-                return None, jsonify({"error": "Invalid timestamp format. Use ISO 8601."}), 400
-            if parsed.tzinfo is None:
-                return None, jsonify({"error": "Timestamp must include a timezone."}), 400
-        result["timestamp"] = value
-    for field in ("description", "location", "image_url"):
-        if field in payload:
-            value = payload[field]
-            if value is not None and not isinstance(value, str):
-                return None, jsonify({"error": f"{field} must be a string or null."}), 400
-            if field == "image_url" and value:
-                from posixpath import normpath
-                from urllib.parse import urlparse
-                parsed = urlparse(value)
-                if parsed.scheme or parsed.netloc:
-                    if parsed.scheme not in ("http", "https") or not parsed.netloc:
-                        return None, jsonify({"error": "image_url must use HTTP or HTTPS."}), 400
-                else:
-                    relative_path = normpath(value)
-                    if (
-                        not relative_path.startswith("assets/")
-                        or relative_path.startswith("../")
-                        or "\\" in value
-                        or parsed.query
-                        or parsed.fragment
-                    ):
-                        return None, jsonify({"error": "image_url must be an HTTP(S) URL or a path under assets/."}), 400
-            result[field] = value.strip() if isinstance(value, str) else value
-    if "price" in payload:
-        value = payload["price"]
-        if value is not None and (
-            isinstance(value, bool)
-            or not isinstance(value, (int, float))
-            or value < 0
-            or (isinstance(value, float) and not math.isfinite(value))
-        ):
-            return None, jsonify({"error": "Price must be a non-negative number or null."}), 400
-        result["price"] = value
-    return result, None, None
+def db():
+    if "db" not in g:
+        g.db = connect(current_app.config["DATABASE_PATH"])
+    return g.db
 
 
-def api_error(error: APIError):
-    # Unique constraint violations are the API's documented duplicate response.
-    if getattr(error, "code", None) == "23505":
-        return jsonify({"error": "You are already registered for this event."}), 409
-    app.logger.error("Supabase request failed (code=%s): %s", getattr(error, "code", None), getattr(error, "message", str(error)))
-    return jsonify({"error": "Database request failed."}), 500
+def query_one(sql, params=()):
+    row = db().execute(sql, params).fetchone()
+    return dict(row) if row else None
 
 
-@app.get("/api/events")
-def list_events():
-    unavailable = database(supabase_public)
-    if unavailable:
-        return unavailable
-    try:
-        # Check if organiser_id filter is requested (for organizer dashboard)
+def query_all(sql, params=()):
+    return [dict(row) for row in db().execute(sql, params).fetchall()]
+
+
+def fetch_event(event_id):
+    return query_one(EVENT_SELECT + " WHERE e.id = ?", (event_id,))
+
+
+def current_user_or_none():
+    user_id = request.headers.get("X-User-Id", "").strip()
+    if not is_uuid(user_id):
+        return None
+    return query_one("SELECT id, name, email, role FROM users WHERE id = ?", (user_id,))
+
+
+def require_user(*roles):
+    """Require a chosen user. With roles, the user's role must be one of them."""
+    def decorator(view):
+        @wraps(view)
+        def wrapper(*args, **kwargs):
+            user = current_user_or_none()
+            if user is None:
+                return error_response("Choose a user to continue.", 401)
+            if roles and user["role"] not in roles:
+                return error_response(f"This action is limited to {' or '.join(roles)} users.", 403)
+            g.user = user
+            return view(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+def registration_count(event_id):
+    return db().execute("SELECT COUNT(*) FROM registrations WHERE event_id = ?", (event_id,)).fetchone()[0]
+
+
+def require_event_owner_or_admin(event_id):
+    event = query_one("SELECT id, organiser_id FROM events WHERE id = ?", (event_id,))
+    if event is None:
+        raise ApiError("Event not found.", 404)
+    if g.user["role"] != "admin" and event["organiser_id"] != g.user["id"]:
+        raise ApiError("Only the event organizer or an admin can do this.", 403)
+    return event
+
+
+def create_app(database_path=None):
+    app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
+    path = Path(database_path or os.environ.get("DATABASE_PATH") or PROJECT_ROOT / "data" / "campus_connect.db")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    app.config["DATABASE_PATH"] = str(path)
+    with closing(connect(path)) as connection:
+        connection.executescript(SCHEMA)
+        seed_database(connection)
+
+    @app.teardown_appcontext
+    def close_db(_exception):
+        connection = g.pop("db", None)
+        if connection is not None:
+            connection.close()
+
+    @app.errorhandler(ApiError)
+    def handle_api_error(error):
+        return error_response(error.message, error.status)
+
+    @app.errorhandler(404)
+    def not_found(_error):
+        return error_response("Not found.", 404)
+
+    @app.errorhandler(405)
+    def method_not_allowed(_error):
+        return error_response("Method not allowed.", 405)
+
+    @app.errorhandler(sqlite3.Error)
+    def database_error(error):
+        app.logger.exception("Database error: %s", error)
+        return error_response("Database request failed.", 500)
+
+    # --- Health and identity -------------------------------------------------
+
+    @app.get("/healthz")
+    def healthcheck():
+        db().execute("SELECT 1").fetchone()
+        return jsonify({"status": "ok"})
+
+    @app.get("/api/users")
+    def list_users():
+        """Everyone who can be chosen in the user switcher."""
+        return jsonify(query_all(
+            """SELECT id, name, email, role FROM users
+               ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'organizer' THEN 1 ELSE 2 END, name"""
+        ))
+
+    @app.get("/api/me")
+    @require_user()
+    def current_user():
+        return jsonify(g.user)
+
+    # --- Events --------------------------------------------------------------
+
+    @app.get("/api/events")
+    def list_events():
         organiser_id = request.args.get("organiser_id")
-        
-        query = supabase_public.table("events").select("id,organiser_id,title,capacity,timestamp,description,location,price,image_url,created_at")
-        
         if organiser_id:
-            if not is_valid_uuid(organiser_id):
-                return jsonify({"error": "Invalid organiser_id."}), 400
-            query = query.eq("organiser_id", organiser_id)
-        
-        response = query.order("timestamp").execute()
-        return jsonify(response.data or [])
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.get("/api/me/events")
-@require_auth
-def current_user_events():
-    if g.app_user.get("role") not in ("organizer", "admin"):
-        return jsonify({"error": "Only organizers and admins can view organizer events."}), 403
-    try:
-        response = (
-            supabase.table("events")
-            .select("id,organiser_id,title,capacity,timestamp,description,location,price,image_url,created_at")
-            .eq("organiser_id", g.app_user["id"])
-            .order("timestamp")
-            .execute()
-        )
-        rows = response.data or []
-        for event in rows:
-            event["organiser_email"] = g.app_user["email"]
+            if not is_uuid(organiser_id):
+                return error_response("Invalid organiser_id.", 400)
+            rows = query_all(EVENT_SELECT + " WHERE e.organiser_id = ? ORDER BY e.timestamp", (organiser_id,))
+        else:
+            rows = query_all(EVENT_SELECT + " ORDER BY e.timestamp")
         return jsonify(rows)
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
 
-
-@app.post("/api/events")
-@require_auth
-def create_event():
-    """Create a new event (organizer or admin only)."""
-    if g.app_user.get("role") not in ("organizer", "admin"):
-        return jsonify({"error": "Only organizers and admins can create events."}), 403
-
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify({"error": "A JSON object is required."}), 400
-
-    event_data, error, status = validate_event_fields(payload)
-    if error:
-        return error, status
-
-    try:
-        # Use service role client to insert event
-        event_data["organiser_id"] = g.app_user["id"]
-
-        response = supabase.table("events").insert(event_data).select("id,organiser_id,title,capacity,timestamp,description,location,price,image_url,created_at").execute()
-        if not response.data:
-            return jsonify({"error": "Failed to create event."}), 500
-        return jsonify(response.data[0]), 201
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.get("/api/config")
-def public_config():
-    if not SUPABASE_URL or not SUPABASE_PUBLISHABLE_KEY or is_service_role_key(SUPABASE_PUBLISHABLE_KEY):
-        return jsonify({"error": "Set SUPABASE_URL and a publishable/anon key; a service-role key cannot be exposed."}), 503
-    return jsonify({
-        "supabase_url": SUPABASE_URL,
-        "publishable_key": SUPABASE_PUBLISHABLE_KEY,
-    })
-
-
-@app.get("/healthz")
-def healthcheck():
-    if not SUPABASE_URL or supabase_public is None or supabase is None:
-        return jsonify({"status": "unavailable"}), 503
-    return jsonify({"status": "ok"})
-
-
-@app.get("/api/events/<event_id>")
-def get_event(event_id):
-    unavailable = database(supabase_public)
-    if unavailable:
-        return unavailable
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "Invalid event id."}), 400
-    try:
-        event = get_one(supabase_public, "events", "id,organiser_id,title,capacity,timestamp,description,location,price,image_url,created_at", "id", event_id)
+    @app.get("/api/events/<event_id>")
+    def get_event(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        event = fetch_event(event_id)
         if event is None:
-            return jsonify({"error": "Event not found."}), 404
+            return error_response("Event not found.", 404)
         return jsonify(event)
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
 
-
-@app.patch("/api/events/<event_id>")
-@require_auth
-def update_event(event_id):
-    """Update an event (organizer who created it or admin only)."""
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "Invalid event id."}), 400
-
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify({"error": "A JSON object is required."}), 400
-    update_data, error, status = validate_event_fields(payload, partial=True)
-    if error:
-        return error, status
-    if not update_data:
-        return jsonify({"error": "At least one event field is required."}), 400
-
-    try:
-        event = get_one(supabase, "events", "id,organiser_id", "id", event_id)
-        if event is None:
-            return jsonify({"error": "Event not found."}), 404
-
-        # Check permissions: organizer who created it or admin
-        if g.app_user.get("role") != "admin" and event.get("organiser_id") != g.app_user["id"]:
-            return jsonify({"error": "Only the event organizer or admin can update this event."}), 403
-
-        response = supabase.table("events").update(update_data).eq("id", event_id).select("id,organiser_id,title,capacity,timestamp,description,location,price,image_url,created_at").execute()
-        if not response.data:
-            return jsonify({"error": "Event not found."}), 404
-        return jsonify(response.data[0])
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.delete("/api/events/<event_id>")
-@require_auth
-def delete_event(event_id):
-    """Delete an event (organizer who created it or admin only)."""
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "Invalid event id."}), 400
-
-    try:
-        event = get_one(supabase, "events", "id,organiser_id", "id", event_id)
-        if event is None:
-            return jsonify({"error": "Event not found."}), 404
-
-        # Check permissions: organizer who created it or admin
-        if g.app_user.get("role") != "admin" and event.get("organiser_id") != g.app_user["id"]:
-            return jsonify({"error": "Only the event organizer or admin can delete this event."}), 403
-
-        # Delete associated registrations first
-        supabase.table("registrations").delete().eq("event_id", event_id).execute()
-
-        response = supabase.table("events").delete().eq("id", event_id).execute()
-        if not response.data:
-            return jsonify({"error": "Event not found."}), 404
-        return jsonify({"status": "deleted", "event_id": event_id})
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.post("/api/registrations")
-@require_auth
-def create_registration():
-    if g.app_user.get("role") != "attendee":
-        return jsonify({"error": "Only attendees can register for events."}), 403
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify({"error": "A JSON object is required."}), 400
-    event_id = payload.get("event_id")
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "A valid event_id is required."}), 400
-    try:
-        event = get_one(supabase, "events", "id,capacity", "id", event_id)
-        if event is None:
-            return jsonify({"error": "Event not found."}), 404
-
-        response = supabase.rpc("register_for_event", {
-            "p_event_id": event_id,
-            "p_user_id": g.app_user["id"],
-        }).execute()
-        result = response.data
-        if isinstance(result, list) and len(result) == 1:
-            result = result[0]
-        if not isinstance(result, dict):
-            app.logger.error("Registration RPC returned an invalid response")
-            return jsonify({"error": "Registration could not be confirmed."}), 500
-        if result.get("status") == "event_not_found":
-            return jsonify({"error": "Event not found."}), 404
-        if result.get("status") == "already_registered":
-            return jsonify({"error": "You are already registered for this event."}), 409
-        if result.get("status") == "event_full":
-            return jsonify({"error": "This event is full."}), 409
-        if result.get("status") != "created" or not isinstance(result.get("registration"), dict):
-            app.logger.error("Registration RPC returned an unexpected status")
-            return jsonify({"error": "Registration could not be confirmed."}), 500
-        return jsonify(result["registration"]), 201
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-    except (TypeError, KeyError, IndexError) as error:
-        app.logger.error("Unexpected registration response: %s", error)
-        return jsonify({"error": "Registration failed."}), 500
-
-
-@app.delete("/api/registrations/<event_id>")
-@require_auth
-def cancel_registration(event_id):
-    if g.app_user.get("role") != "attendee":
-        return jsonify({"error": "Only attendees can cancel event registrations."}), 403
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "Invalid event id."}), 400
-    try:
-        response = (
-            supabase.table("registrations")
-            .delete()
-            .eq("event_id", event_id)
-            .eq("user_id", g.app_user["id"])
-            .select("id")
-            .execute()
+    @app.post("/api/events")
+    @require_user("organizer", "admin")
+    def create_event():
+        data, problem = parse_event(request.get_json(silent=True))
+        if problem:
+            raise problem
+        if "title" not in data:
+            raise ApiError("Title is required and cannot be empty.", 400)
+        event_id = str(uuid.uuid4())
+        values = {
+            "id": event_id,
+            "organiser_id": g.user["id"],
+            "capacity": None,
+            "timestamp": None,
+            "description": None,
+            "location": None,
+            "price": 0,
+            "image_url": None,
+            "created_at": now_iso(),
+            **data,
+        }
+        db().execute(
+            """INSERT INTO events (id, organiser_id, title, capacity, timestamp, description, location, price, image_url, created_at)
+               VALUES (:id, :organiser_id, :title, :capacity, :timestamp, :description, :location, :price, :image_url, :created_at)""",
+            values,
         )
-        if not response.data:
-            return jsonify({"error": "Registration not found."}), 404
-        return jsonify({"event_id": event_id, "status": "cancelled"})
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
+        return jsonify(fetch_event(event_id)), 201
 
+    @app.patch("/api/events/<event_id>")
+    @require_user("organizer", "admin")
+    def update_event(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        data, problem = parse_event(request.get_json(silent=True), partial=True)
+        if problem:
+            raise problem
+        if not data:
+            return error_response("At least one event field is required.", 400)
+        require_event_owner_or_admin(event_id)
+        params = {field: data.get(field) for field in EVENT_FIELDS}
+        params.update({f"has_{field}": field in data for field in EVENT_FIELDS})
+        params["id"] = event_id
+        db().execute(
+            """UPDATE events SET
+                 title = CASE WHEN :has_title THEN :title ELSE title END,
+                 capacity = CASE WHEN :has_capacity THEN :capacity ELSE capacity END,
+                 timestamp = CASE WHEN :has_timestamp THEN :timestamp ELSE timestamp END,
+                 description = CASE WHEN :has_description THEN :description ELSE description END,
+                 location = CASE WHEN :has_location THEN :location ELSE location END,
+                 price = CASE WHEN :has_price THEN :price ELSE price END,
+                 image_url = CASE WHEN :has_image_url THEN :image_url ELSE image_url END
+               WHERE id = :id""",
+            params,
+        )
+        return jsonify(fetch_event(event_id))
 
-@app.get("/api/me/registrations")
-@require_auth
-def current_user_registrations():
-    try:
-        response = (supabase.table("registrations")
-            .select("id,event_id,user_id,createdAt")
-            .eq("user_id", g.app_user["id"])
-            .order("createdAt", desc=True)
-            .execute())
-        return jsonify(response.data)
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
+    @app.delete("/api/events/<event_id>")
+    @require_user("organizer", "admin")
+    def delete_event(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        require_event_owner_or_admin(event_id)
+        db().execute("DELETE FROM events WHERE id = ?", (event_id,))
+        return jsonify({"status": "deleted", "event_id": event_id})
 
+    @app.get("/api/me/events")
+    @require_user("organizer", "admin")
+    def my_events():
+        return jsonify(query_all(EVENT_SELECT + " WHERE e.organiser_id = ? ORDER BY e.timestamp", (g.user["id"],)))
 
-@app.get("/api/events/<event_id>/registrations")
-@require_auth
-def event_registrations(event_id):
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "Invalid event id."}), 400
-    try:
-        if g.app_user.get("role") not in ("organizer", "admin"):
-            return jsonify({"error": "Only organizers and admins can view attendee lists."}), 403
-        event = get_one(supabase, "events", "id,organiser_id", "id", event_id)
-        if event is None:
-            return jsonify({"error": "Event not found."}), 404
-        if g.app_user.get("role") != "admin" and event.get("organiser_id") != g.app_user["id"]:
-            return jsonify({"error": "Only the event organizer can view this list."}), 403
+    @app.get("/api/events/<event_id>/registrations")
+    @require_user("organizer", "admin")
+    def event_registrations(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        require_event_owner_or_admin(event_id)
         if request.args.get("count_only", "").lower() == "true":
-            response = (
-                supabase.table("registrations")
-                .select("id", count="exact")
-                .eq("event_id", event_id)
-                .execute()
+            count = db().execute("SELECT COUNT(*) FROM registrations WHERE event_id = ?", (event_id,)).fetchone()[0]
+            return jsonify({"count": count})
+        return jsonify(query_all(
+            """SELECT r.id, r.event_id, r.user_id, r.created_at, u.name AS user_name, u.email AS user_email
+               FROM registrations r JOIN users u ON u.id = r.user_id
+               WHERE r.event_id = ? ORDER BY r.created_at""",
+            (event_id,),
+        ))
+
+    # --- Registrations and saved events ---------------------------------------
+
+    @app.post("/api/registrations")
+    @require_user("attendee")
+    def register_for_event():
+        payload = request.get_json(silent=True)
+        event_id = payload.get("event_id") if isinstance(payload, dict) else None
+        if not is_uuid(event_id):
+            return error_response("A valid event_id is required.", 400)
+        with transaction(db()):
+            event = query_one("SELECT id, capacity, timestamp FROM events WHERE id = ?", (event_id,))
+            if event is None:
+                raise ApiError("Event not found.", 404)
+            if is_past(event["timestamp"]):
+                raise ApiError("This event has already taken place.", 409)
+            already = query_one(
+                "SELECT id FROM registrations WHERE event_id = ? AND user_id = ?",
+                (event_id, g.user["id"]),
             )
-            return jsonify({"count": response.count or 0})
-        response = (
-            supabase.table("registrations")
-            .select("id,event_id,user_id,createdAt")
-            .eq("event_id", event_id)
-            .order("createdAt")
-            .execute()
+            if already:
+                raise ApiError("You are already registered for this event.", 409)
+            if event["capacity"] is not None:
+                taken = db().execute("SELECT COUNT(*) FROM registrations WHERE event_id = ?", (event_id,)).fetchone()[0]
+                if taken >= event["capacity"]:
+                    raise ApiError("This event is full.", 409)
+            registration = {
+                "id": str(uuid.uuid4()),
+                "event_id": event_id,
+                "user_id": g.user["id"],
+                "created_at": now_iso(),
+            }
+            db().execute(
+                "INSERT INTO registrations (id, event_id, user_id, created_at) VALUES (:id, :event_id, :user_id, :created_at)",
+                registration,
+            )
+        return jsonify(registration), 201
+
+    @app.delete("/api/registrations/<event_id>")
+    @require_user("attendee")
+    def cancel_registration(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        removed = db().execute(
+            "DELETE FROM registrations WHERE event_id = ? AND user_id = ?",
+            (event_id, g.user["id"]),
+        ).rowcount
+        if not removed:
+            return error_response("Registration not found.", 404)
+        return jsonify({"event_id": event_id, "status": "cancelled"})
+
+    @app.get("/api/me/registrations")
+    @require_user()
+    def my_registrations():
+        return jsonify(query_all(
+            "SELECT id, event_id, user_id, created_at FROM registrations WHERE user_id = ? ORDER BY created_at DESC",
+            (g.user["id"],),
+        ))
+
+    @app.get("/api/me/saved")
+    @require_user()
+    def my_saved_events():
+        rows = query_all("SELECT event_id FROM saved_events WHERE user_id = ? ORDER BY created_at", (g.user["id"],))
+        return jsonify([row["event_id"] for row in rows])
+
+    @app.put("/api/me/saved/<event_id>")
+    @require_user()
+    def save_event(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        if fetch_event(event_id) is None:
+            return error_response("Event not found.", 404)
+        db().execute(
+            "INSERT OR IGNORE INTO saved_events (user_id, event_id, created_at) VALUES (?, ?, ?)",
+            (g.user["id"], event_id, now_iso()),
         )
-        registrations = response.data or []
-        user_ids = list({row.get("user_id") for row in registrations if row.get("user_id")})
-        users = {}
-        if user_ids:
-            user_response = supabase.table("users").select("id,email").in_("id", user_ids).execute()
-            users = {row["id"]: row["email"] for row in user_response.data or []}
-        for registration in registrations:
-            registration["user_email"] = users.get(registration.get("user_id"), "Unknown")
-        return jsonify(registrations)
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
+        return jsonify({"event_id": event_id, "saved": True})
 
+    @app.delete("/api/me/saved/<event_id>")
+    @require_user()
+    def unsave_event(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        db().execute("DELETE FROM saved_events WHERE user_id = ? AND event_id = ?", (g.user["id"], event_id))
+        return jsonify({"event_id": event_id, "saved": False})
 
-@app.get("/api/me")
-@require_auth
-def current_user():
-    metadata = g.auth_user.user_metadata
-    if not isinstance(metadata, dict):
-        metadata = {}
-    display_name = metadata.get("display_name")
-    if not isinstance(display_name, str) or not display_name.strip():
-        display_name = g.app_user["email"].split("@", 1)[0]
-    return jsonify({
-        "id": str(g.auth_user.id),
-        "email": g.app_user["email"],
-        "name": display_name.strip()[:60],
-        "role": g.app_user["role"],
-    })
+    # --- Communities ----------------------------------------------------------
 
+    @app.get("/api/communities")
+    def list_communities():
+        current = current_user_or_none()
+        joined = set()
+        if current:
+            joined = {row["community_id"] for row in query_all(
+                "SELECT community_id FROM community_memberships WHERE user_id = ?", (current["id"],))}
+        communities = query_all(
+            """SELECT c.id, c.name, c.description, c.icon, c.base_members,
+                      (SELECT COUNT(*) FROM community_memberships m WHERE m.community_id = c.id) AS joined_members
+               FROM communities c ORDER BY c.id"""
+        )
+        for community in communities:
+            community["member_count"] = community.pop("base_members") + community.pop("joined_members")
+            community["joined"] = community["id"] in joined
+        return jsonify(communities)
 
-# Admin API endpoints
-@app.get("/api/admin/stats")
-@require_admin
-def admin_stats():
-    """Get system-wide statistics for admin dashboard."""
-    try:
-        # Total users by role
-        users_response = supabase.table("users").select("role").execute()
-        users = users_response.data or []
-        role_counts = {}
-        for user in users:
-            role = user.get("role", "unknown")
-            role_counts[role] = role_counts.get(role, 0) + 1
+    def community_or_404(community_id):
+        if query_one("SELECT id FROM communities WHERE id = ?", (community_id,)) is None:
+            raise ApiError("Community not found.", 404)
 
-        # Total events
-        events_response = supabase.table("events").select("id", count="exact").execute()
-        total_events = events_response.count or 0
+    @app.put("/api/me/communities/<int:community_id>")
+    @require_user()
+    def join_community(community_id):
+        community_or_404(community_id)
+        db().execute(
+            "INSERT OR IGNORE INTO community_memberships (user_id, community_id, created_at) VALUES (?, ?, ?)",
+            (g.user["id"], community_id, now_iso()),
+        )
+        return jsonify({"community_id": community_id, "joined": True})
 
-        # Total registrations
-        regs_response = supabase.table("registrations").select("id", count="exact").execute()
-        total_registrations = regs_response.count or 0
+    @app.delete("/api/me/communities/<int:community_id>")
+    @require_user()
+    def leave_community(community_id):
+        community_or_404(community_id)
+        db().execute(
+            "DELETE FROM community_memberships WHERE user_id = ? AND community_id = ?",
+            (g.user["id"], community_id),
+        )
+        return jsonify({"community_id": community_id, "joined": False})
 
-        # Events by organizer
-        events_by_org = supabase.table("events").select("organiser_id").execute()
-        org_event_counts = {}
-        for event in events_by_org.data or []:
-            org_id = event.get("organiser_id")
-            org_event_counts[org_id] = org_event_counts.get(org_id, 0) + 1
+    # --- Admin ----------------------------------------------------------------
 
-        # Recent registrations (last 10)
-        recent_regs = supabase.table("registrations").select("id,event_id,user_id,createdAt").order("createdAt", desc=True).limit(10).execute()
-
+    @app.get("/api/admin/stats")
+    @require_user("admin")
+    def admin_stats():
+        role_counts = {row["role"]: row["count"] for row in query_all(
+            "SELECT role, COUNT(*) AS count FROM users GROUP BY role")}
         return jsonify({
-            "users": role_counts,
-            "total_events": total_events,
-            "total_registrations": total_registrations,
-            "events_by_organizer": org_event_counts,
-            "recent_registrations": recent_regs.data or [],
+            "users": {role: role_counts.get(role, 0) for role in ROLES},
+            "total_events": db().execute("SELECT COUNT(*) FROM events").fetchone()[0],
+            "total_registrations": db().execute("SELECT COUNT(*) FROM registrations").fetchone()[0],
+            "events_by_organizer": {row["organiser_id"]: row["count"] for row in query_all(
+                "SELECT organiser_id, COUNT(*) AS count FROM events GROUP BY organiser_id")},
+            "recent_registrations": query_all(
+                "SELECT id, event_id, user_id, created_at FROM registrations ORDER BY created_at DESC LIMIT 10"),
         })
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
 
+    @app.get("/api/admin/users")
+    @require_user("admin")
+    def admin_list_users():
+        page, per_page, offset = parse_pagination()
+        total = db().execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        users = query_all(
+            "SELECT id, name, email, role, created_at FROM users ORDER BY created_at, name LIMIT ? OFFSET ?",
+            (per_page, offset),
+        )
+        return jsonify({"users": users, "total": total, "page": page, "per_page": per_page})
 
-@app.get("/api/admin/users")
-@require_admin
-def admin_list_users():
-    pagination, error = pagination_args()
-    if error:
-        return error
-    page, per_page, offset = pagination
-    try:
-        response = supabase.table("users").select("id,email,role,auth_user_id,created_at", count="exact").range(offset, offset + per_page - 1).order("created_at", desc=True).execute()
-
-        return jsonify({
-            "users": response.data or [],
-            "total": response.count or 0,
-            "page": page,
-            "per_page": per_page,
-        })
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.get("/api/admin/users/<user_id>")
-@require_admin
-def admin_get_user(user_id):
-    """Get a specific user by ID."""
-    if not is_valid_uuid(user_id):
-        return jsonify({"error": "Invalid user id."}), 400
-    try:
-        user = get_one(supabase, "users", "id,email,role,auth_user_id,created_at", "id", user_id)
+    @app.get("/api/admin/users/<user_id>")
+    @require_user("admin")
+    def admin_get_user(user_id):
+        if not is_uuid(user_id):
+            return error_response("Invalid user id.", 400)
+        user = query_one("SELECT id, name, email, role, created_at FROM users WHERE id = ?", (user_id,))
         if user is None:
-            return jsonify({"error": "User not found."}), 404
+            return error_response("User not found.", 404)
         return jsonify(user)
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
 
+    @app.patch("/api/admin/users/<user_id>")
+    @require_user("admin")
+    def admin_update_user(user_id):
+        if not is_uuid(user_id):
+            return error_response("Invalid user id.", 400)
+        payload = request.get_json(silent=True)
+        role = payload.get("role") if isinstance(payload, dict) else None
+        if role not in ROLES:
+            return error_response("Invalid role. Must be attendee, organizer, or admin.", 400)
+        with transaction(db()):
+            target = query_one("SELECT id, role FROM users WHERE id = ?", (user_id,))
+            if target is None:
+                raise ApiError("User not found.", 404)
+            if target["role"] == "admin" and role != "admin":
+                if user_id == g.user["id"]:
+                    raise ApiError("You cannot remove your own admin role.", 400)
+                if db().execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0] <= 1:
+                    raise ApiError("Cannot remove the last admin user.", 400)
+            db().execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        return jsonify(query_one("SELECT id, name, email, role, created_at FROM users WHERE id = ?", (user_id,)))
 
-@app.patch("/api/admin/users/<user_id>")
-@require_admin
-def admin_update_user(user_id):
-    """Update a user's role."""
-    if not is_valid_uuid(user_id):
-        return jsonify({"error": "Invalid user id."}), 400
-    payload = request.get_json(silent=True)
-    if not isinstance(payload, dict):
-        return jsonify({"error": "A JSON object is required."}), 400
-
-    role = payload.get("role")
-    if role not in ("attendee", "organizer", "admin"):
-        return jsonify({"error": "Invalid role. Must be attendee, organizer, or admin."}), 400
-
-    try:
-        current_user = get_one(supabase, "users", "id,role", "id", user_id)
-        if current_user is None:
-            return jsonify({"error": "User not found."}), 404
-        if user_id == g.app_user["id"] and role != "admin":
-            return jsonify({"error": "You cannot remove your own admin role."}), 400
-        # Prevent removing the last admin
-        if role != "admin":
-            admin_count = supabase.table("users").select("id", count="exact").eq("role", "admin").execute()
-            if (admin_count.count or 0) <= 1:
-                if current_user.get("role") == "admin":
-                    return jsonify({"error": "Cannot remove the last admin user."}), 400
-
-        response = supabase.table("users").update({"role": role}).eq("id", user_id).select("id,email,role,auth_user_id,created_at").execute()
-        if not response.data:
-            return jsonify({"error": "User not found."}), 404
-        return jsonify(response.data[0])
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.delete("/api/admin/users/<user_id>")
-@require_admin
-def admin_delete_user(user_id):
-    """Delete a user (admin only)."""
-    if not is_valid_uuid(user_id):
-        return jsonify({"error": "Invalid user id."}), 400
-    try:
-        current_user = get_one(supabase, "users", "id,role", "id", user_id)
-        if current_user is None:
-            return jsonify({"error": "User not found."}), 404
-        if user_id == g.app_user["id"]:
-            return jsonify({"error": "You cannot delete your own admin account."}), 400
-        owned_events = (
-            supabase.table("events")
-            .select("id", count="exact")
-            .eq("organiser_id", user_id)
-            .execute()
-        )
-        if (owned_events.count or 0) > 0:
-            return jsonify({
-                "error": "This user still owns events. Delete or reassign those events before deleting the user."
-            }), 409
-        # Prevent deleting the last admin
-        admin_count = supabase.table("users").select("id", count="exact").eq("role", "admin").execute()
-        if (admin_count.count or 0) <= 1:
-            if current_user.get("role") == "admin":
-                return jsonify({"error": "Cannot delete the last admin user."}), 400
-
-        # Also delete associated registrations
-        supabase.table("registrations").delete().eq("user_id", user_id).execute()
-
-        response = supabase.table("users").delete().eq("id", user_id).execute()
-        if not response.data:
-            return jsonify({"error": "User not found."}), 404
+    @app.delete("/api/admin/users/<user_id>")
+    @require_user("admin")
+    def admin_delete_user(user_id):
+        if not is_uuid(user_id):
+            return error_response("Invalid user id.", 400)
+        with transaction(db()):
+            target = query_one("SELECT id, role FROM users WHERE id = ?", (user_id,))
+            if target is None:
+                raise ApiError("User not found.", 404)
+            if user_id == g.user["id"]:
+                raise ApiError("You cannot delete your own admin account.", 400)
+            if db().execute("SELECT COUNT(*) FROM events WHERE organiser_id = ?", (user_id,)).fetchone()[0]:
+                raise ApiError(
+                    "This user still owns events. Delete or reassign those events before deleting the user.", 409)
+            if target["role"] == "admin" and db().execute("SELECT COUNT(*) FROM users WHERE role = 'admin'").fetchone()[0] <= 1:
+                raise ApiError("Cannot delete the last admin user.", 400)
+            db().execute("DELETE FROM users WHERE id = ?", (user_id,))
         return jsonify({"status": "deleted", "user_id": user_id})
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
 
-
-@app.get("/api/admin/events")
-@require_admin
-def admin_list_events():
-    pagination, error = pagination_args()
-    if error:
-        return error
-    page, per_page, offset = pagination
-    try:
-        response = supabase.table("events").select("id,organiser_id,title,capacity,timestamp,created_at", count="exact").range(offset, offset + per_page - 1).order("timestamp", desc=True).execute()
-
-        # Get organizer emails for each event
-        organiser_ids = list(set(e.get("organiser_id") for e in response.data or [] if e.get("organiser_id")))
-        organisers = {}
-        if organiser_ids:
-            org_response = supabase.table("users").select("id,email").in_("id", organiser_ids).execute()
-            organisers = {o["id"]: o["email"] for o in org_response.data or []}
-
-        events = response.data or []
-        event_ids = [event["id"] for event in events]
-        registration_counts = {event_id: 0 for event_id in event_ids}
-        if event_ids:
-            offset = 0
-            total = None
-            while total is None or offset < total:
-                registrations = (
-                    supabase.table("registrations")
-                    .select("event_id", count="exact")
-                    .in_("event_id", event_ids)
-                    .range(offset, offset + 999)
-                    .execute()
-                )
-                rows = registrations.data or []
-                for registration in rows:
-                    registration_counts[registration["event_id"]] += 1
-                total = registrations.count or 0
-                offset += len(rows)
-                if not rows:
-                    break
+    @app.get("/api/admin/events")
+    @require_user("admin")
+    def admin_list_events():
+        page, per_page, offset = parse_pagination()
+        total = db().execute("SELECT COUNT(*) FROM events").fetchone()[0]
+        events = query_all(
+            EVENT_SELECT + " ORDER BY e.timestamp DESC LIMIT ? OFFSET ?",
+            (per_page, offset),
+        )
         for event in events:
-            event["organiser_email"] = organisers.get(event.get("organiser_id"), "Unknown")
-            event["registration_count"] = registration_counts.get(event["id"], 0)
+            event["registration_count"] = registration_count(event["id"])
+        return jsonify({"events": events, "total": total, "page": page, "per_page": per_page})
 
-        return jsonify({
-            "events": events,
-            "total": response.count or 0,
-            "page": page,
-            "per_page": per_page,
-        })
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.get("/api/admin/events/<event_id>")
-@require_admin
-def admin_get_event(event_id):
-    """Get a specific event by ID (admin view)."""
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "Invalid event id."}), 400
-    try:
-        event = get_one(supabase, "events", "id,organiser_id,title,capacity,timestamp,created_at", "id", event_id)
+    @app.get("/api/admin/events/<event_id>")
+    @require_user("admin")
+    def admin_get_event(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        event = fetch_event(event_id)
         if event is None:
-            return jsonify({"error": "Event not found."}), 404
-
-        # Get organizer email
-        if event.get("organiser_id"):
-            org = get_one(supabase, "users", "email", "id", event["organiser_id"])
-            event["organiser_email"] = org.get("email") if org else "Unknown"
-
-        # Get registration count
-        reg_count = supabase.table("registrations").select("id", count="exact").eq("event_id", event_id).execute()
-        event["registration_count"] = reg_count.count or 0
-
+            return error_response("Event not found.", 404)
+        event["registration_count"] = registration_count(event_id)
         return jsonify(event)
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
 
-
-@app.delete("/api/admin/events/<event_id>")
-@require_admin
-def admin_delete_event(event_id):
-    """Delete an event (admin only)."""
-    if not is_valid_uuid(event_id):
-        return jsonify({"error": "Invalid event id."}), 400
-    try:
-        # Delete associated registrations first
-        supabase.table("registrations").delete().eq("event_id", event_id).execute()
-
-        response = supabase.table("events").delete().eq("id", event_id).execute()
-        if not response.data:
-            return jsonify({"error": "Event not found."}), 404
+    @app.delete("/api/admin/events/<event_id>")
+    @require_user("admin")
+    def admin_delete_event(event_id):
+        if not is_uuid(event_id):
+            return error_response("Invalid event id.", 400)
+        removed = db().execute("DELETE FROM events WHERE id = ?", (event_id,)).rowcount
+        if not removed:
+            return error_response("Event not found.", 404)
         return jsonify({"status": "deleted", "event_id": event_id})
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
+
+    @app.get("/api/admin/registrations")
+    @require_user("admin")
+    def admin_list_registrations():
+        page, per_page, offset = parse_pagination()
+        total = db().execute("SELECT COUNT(*) FROM registrations").fetchone()[0]
+        registrations = query_all(
+            """SELECT r.id, r.event_id, r.user_id, r.created_at, e.title AS event_title, u.email AS user_email
+               FROM registrations r
+               JOIN events e ON e.id = r.event_id
+               JOIN users u ON u.id = r.user_id
+               ORDER BY r.created_at DESC LIMIT ? OFFSET ?""",
+            (per_page, offset),
+        )
+        return jsonify({"registrations": registrations, "total": total, "page": page, "per_page": per_page})
+
+    # --- Frontend -------------------------------------------------------------
+
+    @app.route("/")
+    def serve_index():
+        return send_from_directory(app.static_folder, "index.html")
+
+    @app.route("/<path:path>")
+    def serve_static(path):
+        return send_from_directory(app.static_folder, path)
+
+    return app
 
 
-@app.get("/api/admin/registrations")
-@require_admin
-def admin_list_registrations():
-    pagination, error = pagination_args()
-    if error:
-        return error
-    page, per_page, offset = pagination
-    try:
-        response = supabase.table("registrations").select("id,event_id,user_id,createdAt", count="exact").range(offset, offset + per_page - 1).order("createdAt", desc=True).execute()
-
-        # Get event titles and user emails
-        event_ids = list(set(r.get("event_id") for r in response.data or [] if r.get("event_id")))
-        user_ids = list(set(r.get("user_id") for r in response.data or [] if r.get("user_id")))
-
-        events = {}
-        if event_ids:
-            ev_response = supabase.table("events").select("id,title").in_("id", event_ids).execute()
-            events = {e["id"]: e["title"] for e in ev_response.data or []}
-
-        users = {}
-        if user_ids:
-            usr_response = supabase.table("users").select("id,email").in_("id", user_ids).execute()
-            users = {u["id"]: u["email"] for u in usr_response.data or []}
-
-        registrations = response.data or []
-        for reg in registrations:
-            reg["event_title"] = events.get(reg.get("event_id"), "Unknown")
-            reg["user_email"] = users.get(reg.get("user_id"), "Unknown")
-
-        return jsonify({
-            "registrations": registrations,
-            "total": response.count or 0,
-            "page": page,
-            "per_page": per_page,
-        })
-    except APIError as error:
-        return api_error(error)
-    except HTTPError:
-        app.logger.warning("Supabase is unreachable")
-        return jsonify({"error": "Supabase is unreachable."}), 503
-
-
-@app.errorhandler(404)
-def not_found(_error):
-    return jsonify({"error": "Not found."}), 404
-
-
-@app.errorhandler(405)
-def method_not_allowed(_error):
-    return jsonify({"error": "Method not allowed."}), 405
-
-
-# Serve frontend
-@app.route('/')
-def serve_index():
-    return send_from_directory(app.static_folder, 'index.html')
-
-
-@app.route('/<path:path>')
-def serve_static(path):
-    return send_from_directory(app.static_folder, path)
+app = create_app()
 
 
 if __name__ == "__main__":

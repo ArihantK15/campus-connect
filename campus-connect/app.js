@@ -1,4 +1,4 @@
-import api from './api.js?v=2';
+import api from './api.js?v=3';
 
 // Landing page elements (declared early for closeModal access)
 let landingPage = null;
@@ -7,7 +7,7 @@ let appShell = null;
 const events=[];
 const CAMPUS_TIME_ZONE='Asia/Kolkata';
 function eventFromApi(record) {
- if(!record||typeof record.id!=='string'||typeof record.title!=='string'||!record.title.trim())throw new Error('Supabase returned an invalid event.');
+ if(!record||typeof record.id!=='string'||typeof record.title!=='string'||!record.title.trim())throw new Error('The server returned an invalid event.');
  const parsed=typeof record.timestamp==='string'?new Date(record.timestamp):null;
  const validDate=parsed&&!Number.isNaN(parsed.getTime())?parsed:null;
  const parts=validDate?Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:CAMPUS_TIME_ZONE,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(validDate).filter(part=>part.type!=='literal').map(part=>[part.type,part.value])):null;
@@ -23,7 +23,7 @@ function eventFromApi(record) {
  const image = record.image_url && record.image_url.trim() ? record.image_url.trim() : `assets/event-${imageNumber}.jpg`;
  const price = typeof record.price === 'number' && record.price >= 0 ? record.price : null;
  const description = record.description && record.description.trim() ? record.description.trim() : 'The organizer has not added a description yet.';
- const host = record.organiser_email || 'Campus organizer';
+ const host = record.organiser_name || 'Campus organizer';
  return {
   id:record.id,title,subtitle:description.slice(0,120)+(description.length>120?'…':''),
   category,day,month,year,dateKey,
@@ -62,26 +62,20 @@ const paths = {
  close:'<path d="m6 6 12 12M6 18 18 6"/>'
 };
 const icon = (name, filled=false) => `<svg class="icon" viewBox="0 0 24 24" fill="${filled?'currentColor':'none'}" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.discover}</svg>`;
-const memory = new Map(); let storageWarning = false;
-function read(key, fallback) { try { const raw = localStorage.getItem('cc-'+key); return raw === null ? (memory.get(key) ?? fallback) : JSON.parse(raw); } catch { return memory.get(key) ?? fallback; } }
-function write(key, value) { memory.set(key,value); try { localStorage.setItem('cc-'+key,JSON.stringify(value)); } catch { if (!storageWarning) { storageWarning=true; setTimeout(()=>{ if (document.getElementById('toast')) toast('Browser storage is unavailable. Changes will last only for this session.'); },0); } } }
 const validIds = value => Array.isArray(value) ? [...new Set(value.filter(id=>events.some(event=>event.id===id)))] : [];
-let profiles = read('profiles',{}); if (!profiles || typeof profiles!=='object' || Array.isArray(profiles)) profiles={};
 let user = null;
 let saved=[], registered=[], joined=[], category='All events', page='discover', calendar=false, eventsLoadFailed=false;
-let pending=read('auth-pending',null), lastFocus=null;
-if(!pending||!['event','community'].includes(pending.type)||(pending.type==='event'&&typeof pending.id!=='string')||(pending.type==='community'&&(!Number.isInteger(pending.id)||pending.id<0||pending.id>=4)))pending=null;
-function getProfile(key) {const p=profiles[key]||{};return {saved:validIds(p.saved),groups:Array.isArray(p.groups)?p.groups.filter(i=>Number.isInteger(i)&&i>=0&&i<4):[]};}
-function restoreProfile() { const p=getProfile(user?user.email:'guest');saved=p.saved;registered=[];joined=user?p.groups:[]; }
-function persist() {const key=user?user.email:'guest';profiles[key]={saved,groups:user?joined:[]};write('profiles',profiles);}
-function persistPending(action) {pending=action;write('auth-pending',action);}
-if (!profiles.guest) {profiles.guest={saved:validIds(read('saved',[])),groups:[]};write('profiles',profiles);}
-restoreProfile();
+let pending=null, lastFocus=null;
+let users=[], communities=[];
+const initials = name => name.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();
+const roleLabel = role => role==='attendee'?'Attendee':role==='organizer'?'Organizer':role==='admin'?'Admin':role;
 function profile() {
  $('#event-count').textContent=registered.length;
- $('#profile-name').textContent=user?user.name.split(/\s+/)[0]:'Log in / Sign up';
- $('#profile-btn').setAttribute('aria-label',user?`Your profile: ${user.name}`:'Log in or sign up');
- if(user)$('#avatar').textContent=user.name.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUpperCase();else $('#avatar').innerHTML=icon('arrow');
+ const staff=Boolean(user&&(user.role==='organizer'||user.role==='admin'));
+ $('#profile-btn').hidden=!staff;
+ if(user){$('#avatar').textContent=initials(user.name);$('#avatar').title=`${user.name} (${roleLabel(user.role)})`;}
+ else {$('#avatar').innerHTML=icon('people');$('#avatar').title='Guest';}
+ syncUserSelects();
 }
 function toast(message) {$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500);}
 async function loadEvents() {
@@ -91,24 +85,27 @@ async function loadEvents() {
   const loaded=rows.map(eventFromApi);
   events.splice(0,events.length,...loaded);
   eventsLoadFailed=false;
-  saved=validIds(saved);registered=validIds(registered);
-  if(user)await loadUserRegistrations();
+  if(user)await loadUserState();
   render();
  } catch(error) {
   events.splice(0,events.length);
   eventsLoadFailed=true;
   render();
   console.error('Failed to load events:',error);
-  toast(error.message||'Events could not be loaded. Check the backend connection and try again.');
+  toast(error.message||'Events could not be loaded. Check the server connection and try again.');
  }
+}
+async function loadUserState() {
+ const [registrations,savedIds]=await Promise.all([api.getMyRegistrations(),api.getSavedEventIds()]);
+ if(!Array.isArray(registrations)||!Array.isArray(savedIds))throw new Error('Saved events and registrations returned an invalid response.');
+ registered=[...new Set(registrations.map(row=>row.event_id).filter(id=>events.some(event=>event.id===id)))];
+ saved=validIds(savedIds);
 }
 async function loadUserRegistrations() {
  if(!user)return false;
  try {
-  const rows=await api.getMyRegistrations();
-  if(!Array.isArray(rows))throw new Error('The registrations API returned an invalid response.');
-  registered=[...new Set(rows.map(row=>row.event_id).filter(id=>events.some(event=>event.id===id)))];
-  persist();render();
+  await loadUserState();
+  render();
   return true;
  } catch(error) {
   console.error('Failed to load registrations:',error);
@@ -117,9 +114,20 @@ async function loadUserRegistrations() {
   return false;
  }
 }
+async function loadCommunities() {
+ try {
+  communities=await api.getCommunities();
+  joined=communities.filter(community=>community.joined).map(community=>community.id);
+ } catch(error) {
+  console.error('Failed to load communities:',error);
+  communities=[];
+  joined=[];
+ }
+}
 function expireSession(error) {
  if(error?.status!==401)return false;
- user=null;api.clearSession();restoreProfile();render();closeModal();toast('Your session expired. Please sign in again.');
+ setCurrentUser(null);
+ toast('Choose a user to continue.');
  return true;
 }
 function updateHero() {
@@ -171,8 +179,8 @@ function render() {
  $('#empty-state').hidden=list.length>0;
  const title=$('#empty-state h3');
  if(hasFilters()) {title.textContent='No events match those filters.';$('#empty-text').textContent='Try another search or clear your filters to see more events.';$('#empty-action').textContent='Clear filters';}
- else if(eventsLoadFailed){title.textContent='Events could not be loaded.';$('#empty-text').textContent='Check that the Flask backend is running and Supabase is configured.';$('#empty-action').textContent='Try again';}
- else if(page==='registered') {title.textContent=user?'Your next plan starts here.':'Your plans belong here.';$('#empty-text').textContent=user?'Register for an event and your entry pass will appear here.':'Log in to see your registrations, or discover an event to get started.';$('#empty-action').textContent=user?'Discover events':'Log in / Sign up';}
+ else if(eventsLoadFailed){title.textContent='Events could not be loaded.';$('#empty-text').textContent='Check that the server is running, then try again.';$('#empty-action').textContent='Try again';}
+ else if(page==='registered') {title.textContent=user?'Your next plan starts here.':'Your plans belong here.';$('#empty-text').textContent=user?'Register for an event and your entry pass will appear here.':'Choose a user from the menu at the top right to see their registrations, or discover an event to get started.';$('#empty-action').textContent=user?'Discover events':'Choose a user';}
  else if(page==='saved'){title.textContent='Save a little something for later.';$('#empty-text').textContent='Tap the bookmark on any event. Your saved events will appear here.';$('#empty-action').textContent='Discover events';}
  else {title.textContent='More moments are on their way.';$('#empty-text').textContent='Check back soon for new campus events.';$('#empty-action').textContent='Explore communities';}
  if(!list.length){$('#events-grid').innerHTML='';$('#events-grid').className='events-grid';$('#calendar-heading').hidden=true;return;}
@@ -226,11 +234,7 @@ function openModal(html) {
  $('.modal').scrollTop=0;$('.modal').focus();
 }
 function closeModal() {
- $('#modal').hidden=true;document.body.style.overflow='';$('.sidebar').inert=false;$('.app').inert=false;$('.skip-link').inert=false;pending=null;write('auth-pending',null);
- // If no user is logged in, ensure we're on landing page
- if (!user) {
-   showLandingPage();
- }
+ $('#modal').hidden=true;document.body.style.overflow='';$('.sidebar').inert=false;$('.app').inert=false;$('.skip-link').inert=false;pending=null;
  if(lastFocus?.isConnected)lastFocus.focus({preventScroll:true});else $('#section-title').parentElement.closest('section').focus({preventScroll:true});
 }
 function detail(id) {
@@ -238,54 +242,20 @@ function detail(id) {
  const ticket=e.price===null?'Ticket pricing not listed':e.price?'$'+e.price+' · pay at the event':'Free · Everyone welcome';
  const capacity=e.capacity===null?'Capacity not listed':`${e.capacity} total spots`;
  openModal(`<img class="modal-image" src="${esc(e.image)}" alt=""><div class="modal-body"><span class="category-label">${esc(e.category)}</span><h2>${esc(e.title)}</h2><p>${esc(e.subtitle)}</p><div class="detail-info"><div><span>WHEN</span>${esc(e.dateLabel)}<br>${esc(e.time)}</div><div><span>WHERE</span>${esc(e.location)}</div><div><span>HOSTED BY</span>${esc(e.host)}</div><div><span>YOUR TICKET</span>${esc(ticket)}</div><div><span>CAPACITY</span>${esc(capacity)}</div></div><h3>A little more about it</h3><p>${esc(e.description)}</p><button class="primary-btn" id="register-btn">${registered.includes(id)?'View your entry pass':'Register interest'} ${icon('arrow')}</button></div>`);
- $('#register-btn').onclick=()=>{if(registered.includes(id)){success(e);return;}pending={type:'event',id};if(!user){auth();return;}pending=null;confirmRegistration(e);};
+ $('#register-btn').onclick=()=>{if(registered.includes(id)){success(e);return;}if(!user){requireUser({type:'event',id});return;}confirmRegistration(e);};
 }
-function auth(login=true,draft={}) {
- openModal(`<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><div class="eyebrow">YOUR CAMPUS STORY STARTS HERE</div><h2>${login?'Welcome back.':'A campus full of possibilities.'}</h2><p>${pending?.type==='event'?'Sign in to finish your event registration.':pending?.type==='community'?'Sign in to join this community.':'Meet your people. Make your plans. Feel a little more connected.'}</p><form id="auth-form">${login?'':`<label class="form-field">Your name<input name="name" autocomplete="name" placeholder="Jamie Davis" value="${esc(draft.name||'')}" required minlength="2" maxlength="60"></label>`}<label class="form-field">Email address<input name="email" type="email" placeholder="you@westbridge.edu" autocomplete="email" value="${esc(draft.email||'')}" required maxlength="254" spellcheck="false" autocapitalize="none"></label><label class="form-field" for="auth-password">Password <span class="field-hint">At least 8 characters</span></label><div class="password-field"><input id="auth-password" name="password" type="password" autocomplete="${login?'current-password':'new-password'}" required minlength="8" maxlength="128"><button type="button" id="show-password" aria-label="Show password" aria-pressed="false">Show</button></div><p id="auth-error" class="form-error" role="alert" hidden></p><button class="primary-btn auth-submit" type="submit">${login?'Log in':'Create account'} ${icon('arrow')}</button></form><div class="form-switch">${login?'New around here?':'Already part of the community?'} <button id="auth-switch">${login?'Sign up':'Log in'}</button></div><p class="auth-note">Campus Connect uses Supabase Auth. You may need to verify your email before signing in. Saved events and community preferences stay in this browser.</p></div>`);
- $('#show-password').onclick=()=>{const input=$('#auth-password'),show=input.type==='password';input.type=show?'text':'password';$('#show-password').textContent=show?'Hide':'Show';$('#show-password').setAttribute('aria-label',show?'Hide password':'Show password');$('#show-password').setAttribute('aria-pressed',String(show));};
- $('#auth-switch').onclick=()=>{const data=new FormData($('#auth-form'));auth(!login,{name:String(data.get('name')||draft.name||''),email:String(data.get('email')||'')});};
- $('#auth-form').onsubmit=async event=>{
-  event.preventDefault();const form=event.currentTarget,submit=form.querySelector('[type="submit"]');if(submit.disabled)return;
-  const data=new FormData(form),email=String(data.get('email')||'').trim().toLowerCase(),name=String(data.get('name')||'').trim().replace(/\s+/g,' '),password=String(data.get('password')||'');
-  const showError=message=>{$('#auth-error').textContent=message;$('#auth-error').hidden=false;};
-  if(!login&&name.length<2){showError('Please enter a name with at least 2 non-space characters.');return;}
-  submit.disabled=true;submit.textContent=login?'Logging in…':'Creating your account…';$('#auth-error').hidden=true;
-  try {
-   if(login)await api.signIn(email,password);
-   else {
-    const result=await api.signUp(name,email,password);
-    if(!result.hasSession){
-     if(!form.isConnected||$('#modal').hidden)return;
-     const followup=pending;closeModal();
-     if(followup)persistPending(followup);
-     toast('Check your email for a verification link, then log in to continue.');
-     return;
-    }
-   }
-   const account=await api.getMe();
-   if(!account||typeof account.email!=='string'||typeof account.name!=='string')throw new Error('Your account profile could not be loaded.');
-   const serverRegistrations=await api.getMyRegistrations();
-   if(!Array.isArray(serverRegistrations))throw new Error('The registrations API returned an invalid response.');
-   if(!form.isConnected||$('#modal').hidden)return;
-   const guestSaved=[...saved];user=account;restoreProfile();registered=[...new Set(serverRegistrations.map(row=>row.event_id).filter(id=>events.some(item=>item.id===id)))];saved=[...new Set([...saved,...guestSaved])];persist();profile();render();
-      showAppShell();
-      if(pending?.type==='event'){
-       const eventToRegister=events.find(item=>item.id===pending.id);pending=null;write('auth-pending',null);
-       if(eventToRegister)confirmRegistration(eventToRegister);else{closeModal();toast('That event is no longer available.');}
-      } else if(pending?.type==='community'){
-       const id=pending.id;pending=null;write('auth-pending',null);
-       if(Number.isInteger(id)&&id>=0&&id<communities.length&&!joined.includes(id))joined.push(id);
-       persist();render();closeModal();toast("You're part of the community!");
-      } else {closeModal();toast(`Welcome${login?' back':''}, ${user.name.split(' ')[0]}!`);}
-  } catch(error) {
-   console.error('Authentication failed:',error);
-   if(error.status===401||error.status===403)api.clearSession();
-   const message=error.status===403?'Verify your email and make sure your account is linked to a Campus Connect profile.':error.message||'Authentication failed. Please try again.';
-   if(form.isConnected)showError(message);
-  } finally {
-   if(form.isConnected){submit.disabled=false;submit.innerHTML=(login?'Log in':'Create account')+' '+icon('arrow');}
-  }
- };
+function activeUserSelect() {
+ return landingPage.hidden ? $('#app-user-select') : $('#landing-user-select');
+}
+function requireUser(action=null) {
+ if(!$('#modal').hidden)closeModal();
+ pending=action;
+ const select=activeUserSelect();
+ const switcher=select.closest('.user-switch');
+ switcher?.classList.add('is-highlighted');
+ setTimeout(()=>switcher?.classList.remove('is-highlighted'),2400);
+ select.focus({preventScroll:true});
+ toast('Choose a user from the menu at the top right to continue.');
 }
 function confirmRegistration(e) {
  if(!e||!user)return;
@@ -295,9 +265,9 @@ function confirmRegistration(e) {
   const button=$('#confirm-btn');if(button.disabled)return;
   button.disabled=true;button.textContent='Saving your spot…';
   try {
-   await api.registerForEvent(e.id,user.email);
+   await api.registerForEvent(e.id);
    if(!registered.includes(e.id))registered.push(e.id);
-   pending=null;persist();render();success(e);
+   pending=null;render();success(e);
   } catch(error) {
    if(expireSession(error))return;
    if(error.status===409)await loadUserRegistrations();
@@ -318,7 +288,7 @@ function success(e) {
    button.disabled=true;button.textContent='Cancelling…';
    try {
     await api.cancelRegistration(e.id);
-    registered=registered.filter(id=>id!==e.id);persist();render();closeModal();toast('Registration canceled. You can register again anytime.');
+    registered=registered.filter(id=>id!==e.id);render();closeModal();toast('Registration canceled. You can register again anytime.');
    } catch(error) {
     if(expireSession(error))return;
     const message=$('#cancel-error');if(message){message.textContent=error.message||'Cancellation failed. Please try again.';message.hidden=false;}
@@ -337,26 +307,63 @@ function makeCalendar(e) {
  return lines.map(line=>{let out='',length=0;for(const char of line){const size=new TextEncoder().encode(char).length;if(length+size>74){out+='\r\n ';length=1;}out+=char;length+=size;}return out;}).join('\r\n')+'\r\n';
 }
 function downloadCalendar(e) {if(!e.timestamp){toast('A calendar invite is unavailable until the event time is announced.');return;}const url=URL.createObjectURL(new Blob([makeCalendar(e)],{type:'text/calendar;charset=utf-8'}));const anchor=document.createElement('a');anchor.href=url;anchor.download=`campus-connect-${e.dateKey||'event'}.ics`;document.body.append(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);toast('Calendar invite downloaded. Open it to add the event.');}
-const communities=[['discover','The Makers Society','For curious hands and creative minds. Pottery, art, design, and everything in between.',128],['people','Campus Social Society','Coffee dates, shared tables, and the friends you haven’t met yet.',342],['check','Campus Wellbeing Collective','A little more movement. A little more balance. Find your feel-good community.',216],['calendar','Westbridge Developer Club','Build things, share ideas, and meet your next project partner.',189]];
-function renderCommunities() {$('#events-grid').className='events-grid';$('#events-grid').innerHTML=communities.map((g,id)=>`<article class="community-card"><span>${icon(g[0])}</span><h3>${g[1]}</h3><p>${g[2]}</p><p>${g[3]+(joined.includes(id)?1:0)} members · Open to everyone</p><button class="${joined.includes(id)?'secondary-btn':'primary-btn'}" data-community="${id}" aria-label="${joined.includes(id)?'Leave':'Join'} ${g[1]}" aria-pressed="${joined.includes(id)}">${joined.includes(id)?'Joined · Leave community':'Join community '+icon('arrow')}</button></article>`).join('');}
-function toggleCommunity(id) {
- if(!user){pending={type:'community',id};auth();return;}
+function renderCommunities() {$('#events-grid').className='events-grid';$('#events-grid').innerHTML=communities.map(c=>{const isJoined=joined.includes(c.id);return `<article class="community-card"><span>${icon(c.icon)}</span><h3>${esc(c.name)}</h3><p>${esc(c.description)}</p><p>${c.member_count} members · Open to everyone</p><button class="${isJoined?'secondary-btn':'primary-btn'}" data-community="${c.id}" aria-label="${isJoined?'Leave':'Join'} ${esc(c.name)}" aria-pressed="${isJoined}">${isJoined?'Joined · Leave community':'Join community '+icon('arrow')}</button></article>`;}).join('')||'<p>No communities are listed yet.</p>';}
+async function toggleCommunity(id) {
+ const community=communities.find(item=>item.id===id);
+ if(!community)return;
+ if(!user){requireUser({type:'community',id});return;}
  if(joined.includes(id)){
-  openModal(`<div class="modal-body"><h2>Leave this community?</h2><p>You’re about to leave <b>${communities[id][1]}</b>. You’re welcome back anytime.</p><button class="primary-btn danger-button" id="confirm-leave">Leave community</button><button class="secondary-btn" id="keep-community">Stay in the community</button></div>`);
-  $('#keep-community').onclick=closeModal;$('#confirm-leave').onclick=()=>{joined=joined.filter(i=>i!==id);persist();render();closeModal();toast('You left the community. You can rejoin anytime.');};
- } else {joined.push(id);persist();render();$(`[data-community="${id}"]`)?.focus({preventScroll:true});toast('You’re part of the community!');}
+  openModal(`<div class="modal-body"><h2>Leave this community?</h2><p>You’re about to leave <b>${esc(community.name)}</b>. You’re welcome back anytime.</p><button class="primary-btn danger-button" id="confirm-leave">Leave community</button><button class="secondary-btn" id="keep-community">Stay in the community</button></div>`);
+  $('#keep-community').onclick=closeModal;
+  $('#confirm-leave').onclick=async()=>{
+   try {
+    await api.leaveCommunity(id);
+    await loadCommunities();
+    render();closeModal();toast('You left the community. You can rejoin anytime.');
+   } catch(error) {
+    if(expireSession(error)){closeModal();return;}
+    closeModal();toast(error.message||'Could not leave this community. Please try again.');
+   }
+  };
+ } else {
+  try {
+   await api.joinCommunity(id);
+   await loadCommunities();
+   render();
+   $(`[data-community="${id}"]`)?.focus({preventScroll:true});
+   toast('You’re part of the community!');
+  } catch(error) {
+   if(expireSession(error))return;
+   toast(error.message||'Could not join this community. Please try again.');
+  }
+ }
 }
-function resumePendingAction() {
+async function toggleSaved(id) {
+ if(!user){requireUser();return;}
+ const wasSaved=saved.includes(id);
+ saved=wasSaved?saved.filter(item=>item!==id):[...saved,id];
+ render();
+ ($(`[data-save="${id}"]`)||$('#empty-action')).focus({preventScroll:true});
+ toast(wasSaved?'Event removed from Saved events.':'Event saved. Find it in Saved events.');
+ try {
+  if(wasSaved)await api.unsaveEvent(id);
+  else await api.saveEvent(id);
+ } catch(error) {
+  if(expireSession(error))return;
+  saved=wasSaved?[...saved,id]:saved.filter(item=>item!==id);
+  render();
+  toast(error.message||'Could not update saved events. Please try again.');
+ }
+}
+async function resumePendingAction() {
  if(!user||!pending)return;
- const action=pending;pending=null;write('auth-pending',null);
+ const action=pending;pending=null;
  if(action.type==='event') {
   const eventToRegister=events.find(event=>event.id===action.id);
   if(eventToRegister)confirmRegistration(eventToRegister);else toast('That event is no longer available.');
   return;
  }
- if(action.type==='community'&&action.id>=0&&action.id<communities.length&&!joined.includes(action.id)) {
-  joined.push(action.id);persist();render();toast('You’re part of the community!');
- }
+ if(action.type==='community'&&communities.some(item=>item.id===action.id)&&!joined.includes(action.id))await toggleCommunity(action.id);
 }
 const pageInfo={discover:['Find your people.',' Make your plans.','Discover the moments that make campus feel like home.','Your next “why not?”','A full calendar. A campus full of possibilities.','Discover events'],registered:['Your plans.',' All in one place.','Your registrations, entry passes, and next campus memories.','Coming up for you','The moments you’ve said yes to.','My events'],saved:['Good things.',' Saved for later.','Keep the events that caught your eye close at hand.','Your saved events','A little inspiration for your next open afternoon.','Saved events'],communities:['Your interests.',' Your people.','Find a shared interest. Make an unexpected connection.','Find your kind of people','Everyone belongs somewhere. Start here.','Communities']};
 function navigate(p) {if(!pageInfo[p])p='discover';if(location.hash!=='#'+p){location.hash=p;}else setPage(p);}
@@ -370,7 +377,7 @@ function setPage(p) {
 }
 window.addEventListener('hashchange',()=>{if(!$('#modal').hidden)closeModal();setPage(location.hash.slice(1));});
 document.addEventListener('click',event=>{
- const save=event.target.closest('[data-save]');if(save){const id=save.dataset.save;saved=saved.includes(id)?saved.filter(i=>i!==id):[...saved,id];persist();render();($(`[data-save="${id}"]`)||$('#empty-action')).focus({preventScroll:true});toast(saved.includes(id)?'Event saved. Find it in Saved events.':'Event removed from Saved events.');return;}
+ const save=event.target.closest('[data-save]');if(save){toggleSaved(save.dataset.save);return;}
  const ticket=event.target.closest('[data-ticket]');if(ticket){success(events.find(e=>e.id===ticket.dataset.ticket));return;}
  const detailButton=event.target.closest('[data-detail]');if(detailButton){detail(detailButton.dataset.detail);return;}
  const community=event.target.closest('[data-community]');if(community){toggleCommunity(+community.dataset.community);return;}
@@ -394,54 +401,22 @@ $('#search').oninput=render;$('#free-filter').onchange=render;$('#date-filter').
 $('#filter-btn').onclick=()=>{const open=$('#filter-btn').getAttribute('aria-expanded')!=='true';$('#filter-btn').setAttribute('aria-expanded',String(open));$('#filter-panel').hidden=!open;};
 $('#reset-filter').onclick=clearFilters;$('#clear-filters').onclick=clearFilters;
 $('#calendar-btn').onclick=()=>{calendar=!calendar;render();};
-$('#empty-action').onclick=()=>{if(eventsLoadFailed){loadEvents();return;}if(hasFilters())clearFilters();else if(page==='registered'&&!user){pending=null;auth(true);}else navigate(page==='discover'?'communities':'discover');};
+$('#empty-action').onclick=()=>{if(eventsLoadFailed){loadEvents();return;}if(hasFilters())clearFilters();else if(page==='registered'&&!user){requireUser();}else navigate(page==='discover'?'communities':'discover');};
 $('#hero-details').onclick=()=>{const feature=events.find(event=>event.timestamp)||events[0];if(feature)detail(feature.id);else toast('No events are available yet.');};
-$('#profile-btn').onclick=()=>{
- if(!user){auth();return;}pending=null;
- const isOrganizer = user.role === 'organizer' || user.role === 'admin';
- openModal(`<div class="modal-body"><div class="auth-logo" aria-hidden="true">✳</div><h2>Hey, ${esc(user.name)}.</h2><p>${esc(user.email)}</p><p>You have ${registered.length} registered event${registered.length===1?'':'s'}, ${saved.length} saved event${saved.length===1?'':'s'}, and ${joined.length} communit${joined.length===1?'y':'ies'}.</p>
- ${isOrganizer ? `<p class="auth-note">Your registration is linked to your Supabase account. Saved events and community preferences stay in this browser.</p>
- <button class="primary-btn" id="create-event-btn">${icon('spark')} Create Event</button>
- <button class="secondary-btn" id="organizer-dashboard-btn">${icon('calendar')} Organizer Dashboard</button>
- ${user.role === 'admin' ? `<button class="secondary-btn" id="admin-dashboard-btn">${icon('campus')} Admin Dashboard</button>` : ''}
- <button class="primary-btn" id="logout">Log out</button>` : `<p class="auth-note">Your registration is linked to your Supabase account. Saved events and community preferences stay in this browser.</p>
- <button class="primary-btn" id="logout">Log out</button>`}
-</div>`);
- 
- if (isOrganizer) {
-  $('#create-event-btn').onclick = () => {
-   closeModal();
-   openEventForm();
-  };
-  $('#organizer-dashboard-btn').onclick = () => {
-   closeModal();
-   openOrganizerDashboard();
-  };
-  if (user.role === 'admin') {
-   $('#admin-dashboard-btn').onclick = () => {
-    closeModal();
-    openAdminDashboard();
-   };
-  }
- }
- 
- $('#logout').onclick=async()=>{
-  const button=$('#logout');button.disabled=true;let signOutFailed=false;
-  try {await api.signOut();}
-  catch(error){signOutFailed=true;console.error('Supabase sign-out failed:',error);}
-  finally {
-   persist();user=null;api.clearSession();restoreProfile();render();closeModal();
-   showLandingPage();
-   toast(signOutFailed?'You were signed out on this device, but Supabase could not revoke the server session.':'Logged out. Your browser-only preferences are saved.');
-  }
- };
-};
+function openDashboardMenu() {
+ const isAdmin=user.role==='admin';
+ openModal(`<div class="modal-body"><div class="auth-logo" aria-hidden="true">✳</div><h2>Hey, ${esc(user.name)}.</h2><p>${esc(user.email)} · ${esc(roleLabel(user.role))}</p><p>You have ${registered.length} registered event${registered.length===1?'':'s'}, ${saved.length} saved event${saved.length===1?'':'s'}, and ${joined.length} communit${joined.length===1?'y':'ies'}.</p><button class="primary-btn" id="create-event-btn">${icon('spark')} Create Event</button><button class="secondary-btn" id="organizer-dashboard-btn">${icon('calendar')} Organizer Dashboard</button>${isAdmin?`<button class="secondary-btn" id="admin-dashboard-btn">${icon('campus')} Admin Dashboard</button>`:''}</div>`);
+ $('#create-event-btn').onclick=()=>{closeModal();openEventForm();};
+ $('#organizer-dashboard-btn').onclick=()=>{closeModal();openOrganizerDashboard();};
+ if(isAdmin)$('#admin-dashboard-btn').onclick=()=>{closeModal();openAdminDashboard();};
+}
+$('#profile-btn').onclick=()=>{if(!user){requireUser();return;}if(user.role==='organizer'||user.role==='admin')openDashboardMenu();};
 $('#explore-btn').onclick=()=>{navigate('discover');requestAnimationFrame(()=>$('#events-heading').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}));};
 $('#community-btn').onclick=()=>navigate('communities');
 $('#notification-btn').onclick=()=>openModal(`<div class="modal-body"><span class="auth-logo">${icon('bell')}</span><h2>Your campus updates</h2><p>${registered.length?`You’re registered for ${registered.length} event${registered.length===1?'':'s'}. Your entry passes are ready in My events.`:'You’re all caught up. Register for an event to start making campus plans.'}</p><button class="primary-btn" id="notifications-events">${registered.length?'Go to My events':'Discover events'}</button></div>`);
 document.addEventListener('click',event=>{if(event.target.closest('#notifications-events')){closeModal();navigate(registered.length?'registered':'discover');}});
-$('#help-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>A little help finding your way.</h2><p>Search by event name or category. Filter by category or date; the price filter is available when event pricing is listed. Bookmark events to keep them in Saved events.</p><p>Open an event and register to reserve a spot. Your entry passes live in <b>My events</b>, where you can download a calendar invite or cancel a registration.</p><p>Create an account with Supabase Auth and verify your email if requested. Registrations are stored in Supabase; saved events and community preferences are browser-local and do not sync across devices.</p><p>Events come from Supabase. Dates use the campus timezone; calendar downloads use an estimated one-hour duration. No payments are collected.</p></div>');
-$('#about-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>Campus feels better connected.</h2><p>Campus Connect brings the best of Westbridge University into one place. Discover events, find a community, and make the kind of memories that stick around after the semester ends.</p><p>This prototype uses Supabase for authentication, event data, and registrations. Saved events and community preferences remain in this browser. Westbridge University is a fictional campus.</p></div>');
+$('#help-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>A little help finding your way.</h2><p>Use the <b>Viewing as</b> menu at the top right to pick a sample user. Choose <b>Browse as guest</b> to look around without a user. Saving events, joining communities and registering all need a chosen user.</p><p>Search by event name or category. Filter by category or date; the price filter is available when event pricing is listed. Bookmark events to keep them in Saved events.</p><p>Open an event and register to reserve a spot. Your entry passes live in <b>My events</b>, where you can download a calendar invite or cancel a registration.</p><p>Saved events, registrations and communities are stored on the Campus Connect server and shown for whichever user you choose. Dates use the campus timezone; calendar downloads use an estimated one-hour duration. No payments are collected.</p></div>');
+$('#about-btn').onclick=()=>openModal('<div class="modal-body"><span class="auth-logo" aria-hidden="true">✳</span><h2>Campus feels better connected.</h2><p>Campus Connect brings the best of Westbridge University into one place. Discover events, find a community, and make the kind of memories that stick around after the semester ends.</p><p>This build has no sign-in. Pick any sample user to explore the attendee, organizer or admin experience. Events, registrations, saved events and communities are stored by the Campus Connect API. Westbridge University is a fictional campus.</p></div>');
 function normalizeIcons(root) {
  const mapping={'✳':'spark','✶':'spark','↗':'arrow','↘':'arrow','ⓘ':'info','▥':'campus','▦':'calendar','◷':'clock','⌖':'pin','⌄':'chevron'};
  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT);const nodes=[];while(walker.nextNode())if(/[✳✶↗↘ⓘ▥▦◷⌖⌄]/.test(walker.currentNode.textContent))nodes.push(walker.currentNode);
@@ -454,12 +429,16 @@ $('#notification-btn').innerHTML=icon('bell');$('#filter-btn').innerHTML=icon('f
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement){event.target.hidden=true;event.target.parentElement.classList.add('image-unavailable');}},true);
 
 // Event creation/edit form
+function toCampusInput(date) {
+ const parts=Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:CAMPUS_TIME_ZONE,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(date).filter(part=>part.type!=='literal').map(part=>[part.type,part.value]));
+ return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}`;
+}
 function openEventForm(eventToEdit = null) {
  const isEdit = !!eventToEdit;
  const e = eventToEdit || {};
  const today = new Date();
  const defaultDate = e.timestamp ? new Date(e.timestamp) : new Date(today.getTime() + 7*24*60*60*1000);
- const dateStr = defaultDate.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+ const dateStr = toCampusInput(defaultDate); // YYYY-MM-DDTHH:MM in campus time
  
  openModal(`<div class="modal-body event-form-modal">
   <span class="category-label">${isEdit ? 'EDIT EVENT' : 'CREATE EVENT'}</span>
@@ -543,12 +522,7 @@ function openEventForm(eventToEdit = null) {
    await loadEvents();
   } catch (error) {
    console.error('Event form error:', error);
-   if (error.status === 401 || error.status === 403) {
-    api.clearSession();
-    showError('Your session expired. Please sign in again.');
-   } else {
-    showError(error.message || 'Failed to save event. Please try again.');
-   }
+   showError(error.message || 'Failed to save event. Please try again.');
   } finally {
    if (form.isConnected) {
     submit.disabled = false;
@@ -715,7 +689,7 @@ function showEventRegistrations(event, registrations) {
     ${registrations.map(r => `
      <tr>
       <td>${esc(r.user_email || 'Attendee')}</td>
-      <td>${r.createdAt ? esc(new Date(r.createdAt).toLocaleString()) : 'Unknown'}</td>
+      <td>${r.created_at ? esc(new Date(r.created_at).toLocaleString()) : 'Unknown'}</td>
      </tr>
     `).join('')}
    </tbody>
@@ -856,7 +830,7 @@ function renderAdminRegistrationsTable(registrations) {
       <td>${esc(r.id.slice(0,8))}…</td>
       <td>${esc(r.event_title)}</td>
       <td>${esc(r.user_email)}</td>
-      <td>${r.createdAt ? new Date(r.createdAt).toLocaleDateString() : 'Unknown'}</td>
+      <td>${r.created_at ? new Date(r.created_at).toLocaleDateString() : 'Unknown'}</td>
      </tr>
     `).join('')}
    </tbody>
@@ -935,11 +909,6 @@ $('#results-count').textContent='Loading events…';
 // Landing page elements (assign to already declared variables)
 landingPage = $('#landing-page');
 appShell = $('#app-shell');
-const landingLoginBtn = $('#landing-login');
-const landingSignupBtn = $('#landing-signup');
-const landingCtaSignup = $('#landing-cta-signup');
-const landingCtaLogin = $('#landing-cta-login');
-const landingFinalSignup = $('#landing-final-signup');
 
 function showLandingPage() {
   if (landingPage && appShell) {
@@ -957,49 +926,84 @@ function showAppShell() {
   }
 }
 
-// Landing page button handlers - open auth modal but stay on landing page until auth succeeds
-landingLoginBtn.onclick = () => auth(true);
-landingSignupBtn.onclick = () => auth(false);
-landingCtaSignup.onclick = () => auth(false);
-landingCtaLogin.onclick = () => auth(true);
-landingFinalSignup.onclick = () => auth(false);
+function enterCampus() {
+  showAppShell();
+  navigate(location.hash.slice(1) || 'discover');
+}
+
+function populateUserSelects() {
+  const groups = [['admin', 'Admins'], ['organizer', 'Organizers'], ['attendee', 'Attendees']];
+  const options = `<option value="">Browse as guest</option>` + groups.map(([role, label]) => {
+    const members = users.filter(item => item.role === role);
+    return members.length
+      ? `<optgroup label="${label}">${members.map(item => `<option value="${esc(item.id)}">${esc(item.name)}</option>`).join('')}</optgroup>`
+      : '';
+  }).join('');
+  document.querySelectorAll('[data-user-select]').forEach(select => { select.innerHTML = options; });
+  syncUserSelects();
+}
+
+function syncUserSelects() {
+  document.querySelectorAll('[data-user-select]').forEach(select => { select.value = user ? user.id : ''; });
+}
+
+async function setCurrentUser(userId) {
+  const next = userId ? users.find(item => item.id === userId) : null;
+  if (userId && !next) {
+    toast('That user is no longer available.');
+    syncUserSelects();
+    return;
+  }
+  user = next || null;
+  api.setUser(user ? user.id : null);
+  saved = [];
+  registered = [];
+  await loadCommunities();
+  if (user) {
+    try {
+      await loadUserState();
+    } catch (error) {
+      console.error('Failed to load the selected user:', error);
+      if (!expireSession(error)) toast(error.message || 'Saved events and registrations could not be loaded.');
+    }
+  }
+  render();
+  if (user) toast(`Now viewing as ${user.name} (${roleLabel(user.role)}).`);
+  else toast('Browsing as a guest. Choose a user to save, join or register.');
+  if (user) await resumePendingAction();
+}
+
+document.querySelectorAll('[data-user-select]').forEach(select => {
+  select.addEventListener('change', async () => {
+    await setCurrentUser(select.value || null);
+    if (!landingPage.hidden) enterCampus();
+  });
+});
+$('#landing-enter').onclick = enterCampus;
+$('#landing-cta-enter').onclick = enterCampus;
+$('#landing-final-enter').onclick = enterCampus;
+$('#landing-cta-choose').onclick = () => { $('#landing-user-select').focus(); };
 
 async function startApp() {
   try {
-    await api.initialize();
-    if (api.initialError) toast(api.initialError);
-    
-    if (api.hasSession) {
-      try {
-        const account = await api.getMe();
-        if (!account || typeof account.email !== 'string' || typeof account.name !== 'string') {
-          throw new Error('Your account profile could not be loaded.');
-        }
-        user = account;
-        restoreProfile();
-        showAppShell();
-      } catch (error) {
-        if (error.status === 401 || error.status === 403) {
-          api.clearSession();
-        } else {
-          console.error('Could not restore the Supabase session:', error);
-          toast(error.message || 'Your session could not be restored.');
-        }
-        showLandingPage();
-      }
-    } else {
-      showLandingPage();
-    }
+    users = await api.getUsers();
   } catch (error) {
-    console.error('Supabase authentication is unavailable:', error);
-    toast(error.message || 'Supabase authentication is unavailable.');
-    showLandingPage();
+    console.error('Failed to load sample users:', error);
+    users = [];
+    toast('The sample user list could not be loaded.');
   }
-  
+  populateUserSelects();
+
+  const rememberedId = api.restoreUser();
+  user = rememberedId ? users.find(item => item.id === rememberedId) || null : null;
+  if (!user) api.setUser(null);
+
   await loadEvents();
+  await loadCommunities();
+  if (user || location.hash.length > 1) showAppShell();
+  else showLandingPage();
   setPage(location.hash.slice(1) || 'discover');
-  if (user) {
-    resumePendingAction();
-  }
+  if (user) render();
+  syncUserSelects();
 }
 startApp();

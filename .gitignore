@@ -11,3 +11,6 @@ venv/
 skills-lock.json
 New1.code-workspace
 supabase/.temp/
+
+# Local SQLite database (created on first run)
+data/

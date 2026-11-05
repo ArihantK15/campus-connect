@@ -1,31 +1,30 @@
 const API_BASE = '/api';
-const SESSION_KEY = 'cc-auth-session';
+const USER_KEY = 'cc-current-user-id';
 
+// Campus Connect has no sign-in. The chosen user's id is sent in X-User-Id and
+// the server applies that user's role. The choice is remembered in this browser.
 class CampusConnectAPI {
   constructor() {
-    this.supabaseUrl = null;
-    this.publishableKey = null;
-    this.session = null;
-    this.refreshing = null;
-    this.storageAvailable = true;
-    this.initialError = null;
+    this.userId = null;
   }
 
-  async initialize() {
-    const configResponse = await fetch(`${API_BASE}/config`);
-    const config = await this.parseResponse(configResponse);
-    if (!configResponse.ok || !config?.supabase_url || !config?.publishable_key) {
-      throw new Error(config?.error || 'Supabase is not configured.');
-    }
-    this.supabaseUrl = config.supabase_url.replace(/\/+$/, '');
-    this.publishableKey = config.publishable_key;
+  restoreUser() {
     try {
-      this.session = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
-    } catch (error) {
-      console.error('Could not restore the Supabase session:', error);
-      this.clearSession();
+      this.userId = localStorage.getItem(USER_KEY) || null;
+    } catch {
+      this.userId = null;
     }
-    await this.completeAuthRedirect();
+    return this.userId;
+  }
+
+  setUser(userId) {
+    this.userId = userId || null;
+    try {
+      if (this.userId) localStorage.setItem(USER_KEY, this.userId);
+      else localStorage.removeItem(USER_KEY);
+    } catch (error) {
+      console.warn('The selected user will not be remembered:', error);
+    }
   }
 
   async parseResponse(response) {
@@ -38,158 +37,18 @@ class CampusConnectAPI {
     }
   }
 
-  async requestAuth(endpoint, body, accessToken = null) {
-    if (!this.supabaseUrl || !this.publishableKey) {
-      throw new Error('Supabase authentication is not configured.');
-    }
-    const response = await fetch(`${this.supabaseUrl}/auth/v1/${endpoint}`, {
-      method: 'POST',
-      headers: {
-        apikey: this.publishableKey,
-        'Content-Type': 'application/json',
-        ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    });
-    const data = await this.parseResponse(response);
-    if (!response.ok) {
-      const error = new Error(data?.msg || data?.message || data?.error_description || `Authentication failed (${response.status}).`);
-      error.status = response.status;
-      error.code = data?.code || data?.error_code;
-      throw error;
-    }
-    return data;
-  }
-
-  saveSession(response) {
-    const session = response?.session || response;
-    if (!session?.access_token || !session?.refresh_token) return null;
-    const expiresIn = Number(session.expires_in) || 3600;
-    this.session = {
-      access_token: session.access_token,
-      refresh_token: session.refresh_token,
-      expires_at: Number(session.expires_at) || Math.floor(Date.now() / 1000) + expiresIn,
-    };
-    try {
-      localStorage.setItem(SESSION_KEY, JSON.stringify(this.session));
-      this.storageAvailable = true;
-    } catch (error) {
-      this.storageAvailable = false;
-      console.warn('The Supabase session will not persist in browser storage:', error);
-    }
-    return session.user || response.user || null;
-  }
-
-  clearSession() {
-    this.session = null;
-    try {
-      localStorage.removeItem(SESSION_KEY);
-      this.storageAvailable = true;
-    } catch (error) {
-      this.storageAvailable = false;
-      console.warn('Could not clear the stored Supabase session:', error);
-    }
-  }
-
-  async signUp(name, email, password) {
-    this.clearSession();
-    const redirectTo = `${window.location.origin}${window.location.pathname}`;
-    const data = await this.requestAuth(`signup?redirect_to=${encodeURIComponent(redirectTo)}`, {
-      email,
-      password,
-      data: { display_name: name },
-    });
-    const authUser = this.saveSession(data);
-    return { user: authUser || data?.user || data, hasSession: Boolean(this.session) };
-  }
-
-  async signIn(email, password) {
-    this.clearSession();
-    const data = await this.requestAuth('token?grant_type=password', { email, password });
-    const authUser = this.saveSession(data);
-    if (!authUser || !this.session) {
-      this.clearSession();
-      throw new Error('Supabase did not return a sign-in session.');
-    }
-    return authUser;
-  }
-
-  async signOut() {
-    const token = this.session?.access_token;
-    try {
-      if (token) await this.requestAuth('logout', undefined, token);
-    } finally {
-      this.clearSession();
-    }
-  }
-
-  async completeAuthRedirect() {
-    const query = new URLSearchParams(window.location.search);
-    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-    const authError = query.get('error_description') || hash.get('error_description');
-    const tokenHash = query.get('token_hash') || hash.get('token_hash');
-    const type = query.get('type') || hash.get('type');
-    try {
-      if (authError) {
-        this.initialError = authError;
-      } else if (tokenHash && type) {
-        const data = await this.requestAuth('verify', { token_hash: tokenHash, type });
-        this.saveSession(data);
-      } else if (hash.get('access_token') && hash.get('refresh_token')) {
-        this.saveSession({
-          access_token: hash.get('access_token'),
-          refresh_token: hash.get('refresh_token'),
-          expires_in: hash.get('expires_in'),
-        });
-      }
-    } finally {
-      if (authError || tokenHash || hash.has('access_token')) {
-        for (const key of ['error', 'error_description', 'error_code', 'token_hash', 'type']) query.delete(key);
-        for (const key of ['access_token', 'refresh_token', 'expires_in', 'expires_at', 'token_type', 'error', 'error_description', 'error_code', 'token_hash', 'type']) hash.delete(key);
-        const remainingHash = hash.toString();
-        const nextUrl = `${window.location.pathname}${query.size ? `?${query}` : ''}${remainingHash ? `#${remainingHash}` : ''}`;
-        window.history.replaceState(null, '', nextUrl);
-      }
-    }
-  }
-
-  async refreshSession(force = false) {
-    if (!this.session?.refresh_token) {
-      this.clearSession();
-      throw new Error('Your session expired. Please sign in again.');
-    }
-    const expiresSoon = this.session.expires_at <= Math.floor(Date.now() / 1000) + 60;
-    if (!force && !expiresSoon) return;
-    if (this.refreshing) return this.refreshing;
-    this.refreshing = this.requestAuth('token?grant_type=refresh_token', {
-      refresh_token: this.session.refresh_token,
-    }).then(data => {
-      if (!this.saveSession(data)) throw new Error('Supabase did not return a refreshed session.');
-    }).catch(error => {
-      if (error.status === 400 || error.status === 401) this.clearSession();
-      throw error;
-    }).finally(() => {
-      this.refreshing = null;
-    });
-    return this.refreshing;
-  }
-
   async fetch(endpoint, options = {}) {
-    const { auth, ...requestOptions } = options;
-    if (auth) await this.refreshSession();
+    const { useUser = true, headers = {}, ...requestOptions } = options;
     const send = () => fetch(`${API_BASE}${endpoint}`, {
+      cache: 'no-store',
       ...requestOptions,
       headers: {
         'Content-Type': 'application/json',
-        ...requestOptions.headers,
-        ...(auth && this.session?.access_token ? { Authorization: `Bearer ${this.session.access_token}` } : {}),
+        ...headers,
+        ...(useUser && this.userId ? { 'X-User-Id': this.userId } : {}),
       },
     });
-    let response = await send();
-    if (auth && response.status === 401 && this.session?.refresh_token) {
-      await this.refreshSession(true);
-      response = await send();
-    }
+    const response = await send();
     const data = await this.parseResponse(response);
     if (!response.ok) {
       const error = new Error(data?.error || `Request failed (${response.status}).`);
@@ -199,125 +58,122 @@ class CampusConnectAPI {
     return data;
   }
 
-  get hasSession() {
-    return Boolean(this.session?.access_token);
+  get hasUser() {
+    return Boolean(this.userId);
   }
 
-  async getEvents() {
-    return this.fetch('/events');
-  }
-
-  async getEvent(eventId) {
-    return this.fetch(`/events/${encodeURIComponent(eventId)}`);
+  // Identity
+  async getUsers() {
+    return this.fetch('/users', { useUser: false });
   }
 
   async getMe() {
-    return this.fetch('/me', { auth: true });
+    return this.fetch('/me');
   }
 
-  async registerForEvent(eventId) {
-    return this.fetch('/registrations', {
-      method: 'POST',
-      body: JSON.stringify({ event_id: eventId }),
-      auth: true,
-    });
+  // Events
+  async getEvents() {
+    return this.fetch('/events', { useUser: false });
   }
 
-  async cancelRegistration(eventId) {
-    return this.fetch(`/registrations/${encodeURIComponent(eventId)}`, {
-      method: 'DELETE',
-      auth: true,
-    });
+  async getEvent(eventId) {
+    return this.fetch(`/events/${encodeURIComponent(eventId)}`, { useUser: false });
   }
 
-  async getMyRegistrations() {
-    return this.fetch('/me/registrations', { auth: true });
+  async createEvent(eventData) {
+    return this.fetch('/events', { method: 'POST', body: JSON.stringify(eventData) });
+  }
+
+  async updateEvent(eventId, eventData) {
+    return this.fetch(`/events/${encodeURIComponent(eventId)}`, { method: 'PATCH', body: JSON.stringify(eventData) });
+  }
+
+  async deleteEvent(eventId) {
+    return this.fetch(`/events/${encodeURIComponent(eventId)}`, { method: 'DELETE' });
   }
 
   async getMyEvents() {
-    return this.fetch('/me/events', { auth: true });
+    return this.fetch('/me/events');
   }
 
   async getEventRegistrationCount(eventId) {
-    const result = await this.fetch(
-      `/events/${encodeURIComponent(eventId)}/registrations?count_only=true`,
-      { auth: true },
-    );
+    const result = await this.fetch(`/events/${encodeURIComponent(eventId)}/registrations?count_only=true`);
     return result.count;
   }
 
   async getEventRegistrations(eventId) {
-    return this.fetch(`/events/${encodeURIComponent(eventId)}/registrations`, { auth: true });
+    return this.fetch(`/events/${encodeURIComponent(eventId)}/registrations`);
   }
 
-  async createEvent(eventData) {
-    return this.fetch('/events', {
-      method: 'POST',
-      body: JSON.stringify(eventData),
-      auth: true,
-    });
+  // Registrations
+  async registerForEvent(eventId) {
+    return this.fetch('/registrations', { method: 'POST', body: JSON.stringify({ event_id: eventId }) });
   }
 
-  async updateEvent(eventId, eventData) {
-    return this.fetch(`/events/${encodeURIComponent(eventId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify(eventData),
-      auth: true,
-    });
+  async cancelRegistration(eventId) {
+    return this.fetch(`/registrations/${encodeURIComponent(eventId)}`, { method: 'DELETE' });
   }
 
-  async deleteEvent(eventId) {
-    return this.fetch(`/events/${encodeURIComponent(eventId)}`, {
-      method: 'DELETE',
-      auth: true,
-    });
+  async getMyRegistrations() {
+    return this.fetch('/me/registrations');
   }
 
-  // Admin API methods
+  // Saved events and communities
+  async getSavedEventIds() {
+    return this.fetch('/me/saved');
+  }
+
+  async saveEvent(eventId) {
+    return this.fetch(`/me/saved/${encodeURIComponent(eventId)}`, { method: 'PUT' });
+  }
+
+  async unsaveEvent(eventId) {
+    return this.fetch(`/me/saved/${encodeURIComponent(eventId)}`, { method: 'DELETE' });
+  }
+
+  async getCommunities() {
+    return this.fetch('/communities');
+  }
+
+  async joinCommunity(communityId) {
+    return this.fetch(`/me/communities/${Number(communityId)}`, { method: 'PUT' });
+  }
+
+  async leaveCommunity(communityId) {
+    return this.fetch(`/me/communities/${Number(communityId)}`, { method: 'DELETE' });
+  }
+
+  // Admin
   async getAdminStats() {
-    return this.fetch('/admin/stats', { auth: true });
+    return this.fetch('/admin/stats');
   }
 
   async getAdminUsers(page = 1, perPage = 20) {
-    return this.fetch(`/admin/users?page=${page}&per_page=${perPage}`, { auth: true });
-  }
-
-  async getAdminUser(userId) {
-    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, { auth: true });
+    return this.fetch(`/admin/users?page=${page}&per_page=${perPage}`);
   }
 
   async updateAdminUser(userId, role) {
-    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ role }),
-      auth: true,
-    });
+    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, { method: 'PATCH', body: JSON.stringify({ role }) });
   }
 
   async deleteAdminUser(userId) {
-    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, {
-      method: 'DELETE',
-      auth: true,
-    });
+    return this.fetch(`/admin/users/${encodeURIComponent(userId)}`, { method: 'DELETE' });
   }
 
   async getAdminEvents(page = 1, perPage = 20) {
-    return this.fetch(`/admin/events?page=${page}&per_page=${perPage}`, { auth: true });
+    return this.fetch(`/admin/events?page=${page}&per_page=${perPage}`);
   }
 
   async getAdminEvent(eventId) {
-    return this.fetch(`/admin/events/${encodeURIComponent(eventId)}`, { auth: true });
+    return this.fetch(`/admin/events/${encodeURIComponent(eventId)}`);
   }
 
   async deleteAdminEvent(eventId) {
-    return this.fetch(`/admin/events/${encodeURIComponent(eventId)}`, {
-      method: 'DELETE',
-      auth: true,
-    });
+    return this.fetch(`/admin/events/${encodeURIComponent(eventId)}`, { method: 'DELETE' });
   }
 
   async getAdminRegistrations(page = 1, perPage = 20) {
-    return this.fetch(`/admin/registrations?page=${page}&per_page=${perPage}`, { auth: true });
+    return this.fetch(`/admin/registrations?page=${page}&per_page=${perPage}`);
   }
 }
 

@@ -25,8 +25,11 @@
         <span>Campus Connect</span>
       </a>
       <nav class="landing-nav">
-        <button class="landing-btn ghost" id="landing-login">Log in</button>
-        <button class="landing-btn primary" id="landing-signup">Get Started</button>
+        <div class="user-switch" id="landing-user-switch">
+          <label class="user-switch-label" for="landing-user-select">Viewing as</label>
+          <select class="user-select" id="landing-user-select" data-user-select aria-describedby="landing-user-hint"></select>
+        </div>
+        <button class="landing-btn primary" id="landing-enter">Open campus</button>
       </nav>
     </header>
 
@@ -39,10 +42,10 @@
         <h1 id="landing-title">Find your people.<br>Make your plans.</h1>
         <p class="landing-tagline">The campus event platform built for students. Discover events, join communities, organize meetups — all in one place.</p>
         <div class="landing-cta">
-          <button class="landing-btn primary large" id="landing-cta-signup">Create Free Account</button>
-          <button class="landing-btn ghost large" id="landing-cta-login">Log In</button>
+          <button class="landing-btn primary large" id="landing-cta-enter">Explore Campus Connect</button>
+          <button class="landing-btn ghost large" id="landing-cta-choose">Choose a user</button>
         </div>
-        <p class="landing-trust">No credit card · Supabase Auth · Open source</p>
+        <p class="landing-trust" id="landing-user-hint">No sign-up needed · Pick any sample user from the menu at the top right</p>
         
       </div>
       <div class="landing-hero-visual">
@@ -217,7 +220,7 @@
       <h2 id="cta-title">Ready to connect?</h2>
       <p>Join thousands of students making campus feel like home.</p>
       <div class="landing-cta">
-        <button class="landing-btn primary large" id="landing-final-signup">Get Started Free</button>
+        <button class="landing-btn primary large" id="landing-final-enter">Explore Campus Connect</button>
       </div>
     </section>
 
@@ -292,9 +295,13 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18c0 0-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             <span class="notification-badge" hidden></span>
           </button>
-          <button class="profile" id="profile-btn" aria-label="Your profile">
+          <div class="user-switch" id="app-user-switch">
             <span id="avatar" aria-hidden="true"></span>
-            <span id="profile-name">Log in / Sign up</span>
+            <label class="user-switch-label visually-hidden" for="app-user-select">Viewing as</label>
+            <select class="user-select" id="app-user-select" data-user-select></select>
+          </div>
+          <button class="profile" id="profile-btn" aria-label="Open organizer and admin dashboards" hidden>
+            <span id="profile-name">Dashboards</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
           </button>
         </div>
@@ -394,6 +401,6 @@
   <div id="toast" role="status"></div>
   <noscript><p class="noscript">Please enable JavaScript to browse events and register.</p></noscript>
 
-  <script type="module" src="app.js?v=9"></script>
+  <script type="module" src="app.js?v=10"></script>
 </body>
 </html>
