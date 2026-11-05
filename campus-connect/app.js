@@ -503,6 +503,12 @@ function openEventForm(eventToEdit = null) {
    description: String(data.get('description') || '').trim() || null,
   };
   
+  const showError = (message) => {
+   const errorEl = $('#event-form-error');
+   errorEl.textContent = message;
+   errorEl.hidden = false;
+  };
+  
   // Validation
   if (!eventData.title) {
    showError('Event title is required.');
@@ -520,12 +526,6 @@ function openEventForm(eventToEdit = null) {
    showError('Price must be a non-negative number.');
    return;
   }
-  
-  const showError = (message) => {
-   const errorEl = $('#event-form-error');
-   errorEl.textContent = message;
-   errorEl.hidden = false;
-  };
   
   submit.disabled = true;
   submit.textContent = isEdit ? 'Saving…' : 'Creating…';
