@@ -18,6 +18,7 @@
   --brand-hover: #2d2370;
   --brand-light: #edeaff;
   --brand-lighter: #f5f2ff;
+  --brand-text: var(--brand); /* brand colour when used as text/icons on the page surface */
   
   /* Accent - Warm amber for highlights */
   --accent: #d47a1a;
@@ -52,6 +53,7 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  --space-7: 28px;
   --space-8: 32px;
   --space-10: 40px;
   --space-12: 48px;
@@ -100,6 +102,24 @@
     --warning-light: #2d1e08;
     --danger-light: #2d0a0a;
     --info-light: #0a1a2e;
+
+    /* Brand: a mid indigo for fills that carry white labels, a light tint for text on dark surfaces */
+    --brand: #5b4bd6;
+    --brand-hover: #6d5ce8;
+    --brand-text: #b9aeff;
+    --accent: #f59e0b;
+    --accent-hover: #fbbf24;
+
+    /* Status and category colours lifted to stay readable on dark backgrounds */
+    --success: #4ade80;
+    --warning: #fbbf24;
+    --danger: #f87171;
+    --info: #93c5fd;
+    --cat-tech: #b9aeff;
+    --cat-social: #5eead4;
+    --cat-music: #f0abfc;
+    --cat-sports: #86efac;
+    --cat-general: #b4b4c8;
   }
 }
 
@@ -147,7 +167,7 @@ button {
 }
 
 a {
-  color: var(--brand);
+  color: var(--brand-text);
   text-decoration: none;
 }
 
@@ -258,7 +278,7 @@ svg {
 .brand-mark {
   width: 32px;
   height: 32px;
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .landing-nav {
@@ -327,7 +347,7 @@ svg {
   gap: var(--space-2);
   padding: var(--space-1) var(--space-3);
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
   font-size: 0.75rem;
   font-weight: 600;
   border-radius: var(--radius-full);
@@ -358,7 +378,7 @@ svg {
 }
 
 .landing-hero h1 span {
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .landing-tagline {
@@ -460,7 +480,7 @@ svg {
 
 .preview-nav-item.active {
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .preview-nav-item svg {
@@ -509,7 +529,7 @@ svg {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--brand);
+  color: var(--brand-text);
   background: var(--brand-light);
   padding: 2px 8px;
   border-radius: var(--radius-full);
@@ -600,7 +620,7 @@ svg {
   align-items: center;
   justify-content: center;
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
   border-radius: var(--radius-md);
   margin-bottom: var(--space-4);
 }
@@ -651,7 +671,7 @@ svg {
   justify-content: center;
   margin: 0 auto var(--space-4);
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
   font-size: 1.25rem;
   font-weight: 700;
   font-family: var(--font-mono);
@@ -762,7 +782,7 @@ svg {
 }
 
 .landing-footer a:hover {
-  color: var(--brand);
+  color: var(--brand-text);
   text-decoration: none;
 }
 
@@ -871,7 +891,7 @@ nav {
 
 .nav-item.active {
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .nav-item svg {
@@ -884,7 +904,7 @@ nav {
   margin-left: auto;
   padding: 2px 8px;
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
   font-size: 0.75rem;
   font-weight: 600;
   border-radius: var(--radius-full);
@@ -907,7 +927,7 @@ nav {
 .sparkle {
   width: 28px;
   height: 28px;
-  color: var(--brand);
+  color: var(--brand-text);
   margin-bottom: var(--space-3);
 }
 
@@ -934,7 +954,7 @@ nav {
   padding: var(--space-2) 0;
   font-size: 0.875rem;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .sidebar-note button:hover {
@@ -1112,7 +1132,7 @@ header {
   align-items: center;
   justify-content: center;
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
   font-size: 0.75rem;
   font-weight: 600;
   border-radius: 50%;
@@ -1161,7 +1181,7 @@ main {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.15em;
-  color: var(--brand);
+  color: var(--brand-text);
   margin-bottom: var(--space-3);
 }
 
@@ -1176,7 +1196,7 @@ h1 {
 
 h1 span {
   font-weight: 500;
-  color: var(--brand);
+  color: var(--brand-text);
 }
 
 .page-intro > div > p {
@@ -1192,7 +1212,7 @@ h1 span {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--brand);
+  color: var(--brand-text);
   opacity: 0.3;
 }
 
@@ -1460,7 +1480,7 @@ h1 span {
 }
 
 .tabs button.selected {
-  color: var(--brand);
+  color: var(--brand-text);
   background: var(--brand-light);
 }
 
@@ -1586,7 +1606,7 @@ h1 span {
   padding: var(--space-1) var(--space-3);
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--brand-text);
   background: var(--brand-light);
   border-radius: var(--radius-sm);
   transition: all var(--transition-fast);
@@ -1698,13 +1718,13 @@ h1 span {
   font-size: 0.625rem;
   font-weight: 600;
   text-transform: uppercase;
-  color: var(--fg-subtle);
+  color: #5a5a6e;
 }
 
 .date-badge b {
   font-size: 1.125rem;
   font-weight: 700;
-  color: var(--fg);
+  color: #1a1a2e;
   line-height: 1;
 }
 
@@ -1721,17 +1741,17 @@ h1 span {
   border: none;
   border-radius: 50%;
   box-shadow: var(--shadow-md);
-  color: var(--fg-muted);
+  color: #5a5a6e;
   transition: all var(--transition-fast);
 }
 
 .save-button:hover {
-  color: var(--brand);
-  background: var(--brand-light);
+  color: #3b2f8a;
+  background: #edeaff;
 }
 
 .save-button.saved {
-  color: var(--brand);
+  color: #3b2f8a;
 }
 
 .save-button svg {
@@ -1777,7 +1797,7 @@ h1 span {
 }
 
 .card-content h3 button:hover {
-  color: var(--brand);
+  color: var(--brand-text);
   text-decoration: none;
 }
 
@@ -1857,7 +1877,7 @@ h1 span {
   padding: var(--space-2) var(--space-4);
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--brand-text);
   background: var(--brand-light);
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
@@ -1939,7 +1959,7 @@ h1 span {
   align-items: center;
   justify-content: center;
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
   border-radius: var(--radius-md);
 }
 
@@ -1958,7 +1978,7 @@ h1 span {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.1em;
-  color: var(--brand);
+  color: var(--brand-text);
   margin-bottom: var(--space-2);
 }
 
@@ -2006,7 +2026,7 @@ footer {
 footer button {
   font-size: 0.8125rem;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--brand-text);
   transition: all var(--transition-fast);
 }
 
@@ -2097,7 +2117,7 @@ footer button:hover {
   height: 56px;
   margin: 0 auto var(--space-4);
   background: var(--brand-light);
-  color: var(--brand);
+  color: var(--brand-text);
   border-radius: var(--radius-md);
 }
 
@@ -2178,7 +2198,7 @@ footer button:hover {
   transform: translateY(-50%);
   font-size: 0.75rem;
   font-weight: 500;
-  color: var(--brand);
+  color: var(--brand-text);
   padding: 0;
 }
 
@@ -2217,7 +2237,7 @@ footer button:hover {
 
 .form-switch button {
   font-weight: 600;
-  color: var(--brand);
+  color: var(--brand-text);
   padding: 0 var(--space-1);
 }
 
@@ -2239,7 +2259,7 @@ footer button:hover {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--brand);
+  color: var(--brand-text);
   background: var(--brand-light);
   padding: 3px 10px;
   border-radius: var(--radius-full);
@@ -2272,7 +2292,7 @@ footer button:hover {
   font-family: var(--font-mono);
   font-size: 0.8125rem;
   font-weight: 600;
-  color: var(--brand);
+  color: var(--brand-text);
   background: var(--brand-light);
   border-radius: var(--radius-sm);
   text-align: center;
@@ -2301,7 +2321,7 @@ footer button:hover {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.15em;
-  color: var(--brand);
+  color: var(--brand-text);
   margin-bottom: var(--space-3);
 }
 
@@ -2387,7 +2407,7 @@ footer button:hover {
 .admin-dashboard-modal .stat-card h3 {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--brand);
+  color: var(--brand-text);
   line-height: 1;
   margin: 0 0 var(--space-1);
 }
@@ -2423,7 +2443,7 @@ footer button:hover {
 }
 
 .admin-tab.active {
-  color: var(--brand);
+  color: var(--brand-text);
   background: var(--brand-light);
 }
 
@@ -2532,7 +2552,7 @@ footer button:hover {
 .organizer-dashboard-modal .stat-card h3 {
   font-size: 2rem;
   font-weight: 700;
-  color: var(--brand);
+  color: var(--brand-text);
   line-height: 1;
   margin: 0 0 var(--space-1);
 }
@@ -2681,7 +2701,7 @@ footer button:hover {
   padding: var(--space-3) var(--space-5);
   font-size: 0.875rem;
   font-weight: 500;
-  color: white;
+  color: var(--bg);
   background: var(--fg);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
@@ -3016,3 +3036,34 @@ footer button:hover {
   }
 }
 
+/* Dashboards hold wide tables: widen the dialog and scroll instead of clipping. */
+.modal:has(.admin-dashboard-modal),
+.modal:has(.organizer-dashboard-modal),
+.modal:has(.registrations-modal) {
+  max-width: min(960px, 96vw);
+}
+
+.admin-dashboard-modal,
+.organizer-dashboard-modal,
+.registrations-modal {
+  overflow-x: auto;
+}
+
+
+/* Role panel: makes the active user's role and abilities visible */
+.role-panel{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin-top:var(--space-4);padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-left:4px solid var(--brand-text);border-radius:var(--radius-lg,12px);background:var(--bg-muted)}
+.role-panel[data-role="organizer"]{border-left-color:var(--accent)}
+.role-panel[data-role="admin"]{border-left-color:#e5484d}
+.role-panel small{flex-basis:100%;color:var(--fg-muted)}
+.role-panel .role-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);flex-basis:100%}
+.role-panel .role-actions button{width:auto}
+
+.attendee-dashboard-modal{max-width:min(560px,96vw);max-height:80vh;overflow-y:auto}
+.attendee-dashboard-modal h3{margin:var(--space-4) 0 var(--space-2);font-size:1rem}
+.dash-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--space-2)}
+.dash-stats div{padding:var(--space-3);border:1px solid var(--border);border-radius:12px;background:var(--bg-muted);text-align:center}
+.dash-stats b{display:block;font-size:1.5rem}
+.dash-stats span,.dash-list small,.dash-empty{color:var(--fg-muted);font-size:.85rem}
+.dash-list{list-style:none;margin:0;padding:0;display:grid;gap:var(--space-2)}
+.link-row{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:100%;padding:var(--space-2) var(--space-3);border:1px solid var(--border);border-radius:10px;background:transparent;color:var(--fg);text-align:left}
+button.link-row{cursor:pointer}button.link-row:hover{background:var(--bg-muted)}
