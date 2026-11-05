@@ -3049,3 +3049,11 @@ footer button:hover {
   overflow-x: auto;
 }
 
+
+/* Role panel: makes the active user's role and abilities visible */
+.role-panel{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2) var(--space-3);margin-top:var(--space-4);padding:var(--space-3) var(--space-4);border:1px solid var(--border);border-left:4px solid var(--brand-text);border-radius:var(--radius-lg,12px);background:var(--bg-muted)}
+.role-panel[data-role="organizer"]{border-left-color:var(--accent)}
+.role-panel[data-role="admin"]{border-left-color:#e5484d}
+.role-panel small{flex-basis:100%;color:var(--fg-muted)}
+.role-panel .role-actions{display:flex;flex-wrap:wrap;gap:var(--space-2);flex-basis:100%}
+.role-panel .role-actions button{width:auto}

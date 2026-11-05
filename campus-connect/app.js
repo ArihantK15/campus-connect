@@ -75,7 +75,19 @@ function profile() {
  $('#profile-btn').hidden=!staff;
  if(user){$('#avatar').textContent=initials(user.name);$('#avatar').title=`${user.name} (${roleLabel(user.role)})`;}
  else {$('#avatar').innerHTML=icon('people');$('#avatar').title='Guest';}
+ renderRolePanel();
  syncUserSelects();
+}
+function renderRolePanel() {
+ const panel=$('#role-panel');
+ if(!user){panel.hidden=true;panel.innerHTML='';return;}
+ panel.dataset.role=user.role;
+ const stats=`${registered.length} registered · ${saved.length} saved · ${joined.length} communit${joined.length===1?'y':'ies'}`;
+ const text={attendee:'You can register for events, save them and join communities.',organizer:'You can also create events and manage registrations for your own events.',admin:'You can manage every event, user and registration on campus.'}[user.role]||'';
+ const actions=user.role==='attendee'?'':`<button class="primary-btn" data-role-action="create">${icon('spark')} Create event</button><button class="secondary-btn" data-role-action="organizer">${icon('calendar')} My events</button>${user.role==='admin'?`<button class="secondary-btn" data-role-action="admin">${icon('campus')} Admin dashboard</button>`:''}`;
+ panel.hidden=false;
+ panel.innerHTML=`<span class="role-badge role-${esc(user.role)}">${esc(roleLabel(user.role))}</span><strong>Viewing as ${esc(user.name)}</strong><small>${esc(text)} ${esc(stats)}</small><div class="role-actions">${actions}</div>`;
+ panel.querySelectorAll('[data-role-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.roleAction;if(a==='create')openEventForm();else if(a==='organizer')openOrganizerDashboard();else openAdminDashboard();});
 }
 function toast(message) {$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500);}
 async function loadEvents() {
