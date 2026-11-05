@@ -220,6 +220,10 @@ function openModal(html) {
 }
 function closeModal() {
  $('#modal').hidden=true;document.body.style.overflow='';$('.sidebar').inert=false;$('.app').inert=false;$('.skip-link').inert=false;pending=null;write('auth-pending',null);
+ // If no user is logged in, ensure we're on landing page
+ if (!user) {
+   showLandingPage();
+ }
  if(lastFocus?.isConnected)lastFocus.focus({preventScroll:true});else $('#section-title').parentElement.closest('section').focus({preventScroll:true});
 }
 function detail(id) {
@@ -438,8 +442,7 @@ function normalizeIcons(root) {
  for(const node of nodes){if(node.parentElement.closest('script,style,svg'))continue;const fragment=document.createDocumentFragment();for(const part of node.textContent.split(/([✳✶↗↘ⓘ▥▦◷⌖⌄])/)){if(mapping[part]){const span=document.createElement('span');span.className='inline-icon';span.innerHTML=icon(mapping[part]);fragment.append(span);}else fragment.append(document.createTextNode(part));}node.replaceWith(fragment);}
 }
 normalizeIcons(document.body);
-// Use actual icons consistently instead of platform-dependent Unicode symbols.
-document.querySelectorAll('[data-page]').forEach(button=>{button.querySelector('span').innerHTML=icon(({discover:'discover',registered:'calendar',saved:'bookmark',communities:'people'})[button.dataset.page]);});
+// Navigation icons are now inline SVGs in HTML, no need to replace
 $('#notification-btn').innerHTML=icon('bell');$('.search-box>span').innerHTML=icon('search');$('#filter-btn').innerHTML=icon('filter')+'<span>Filters</span>';$('.modal-close').innerHTML=icon('close');
 // A missing remote photo must not show a broken-image glyph or hide event text.
 document.addEventListener('error',event=>{if(event.target instanceof HTMLImageElement){event.target.hidden=true;event.target.parentElement.classList.add('image-unavailable');}},true);
@@ -953,17 +956,12 @@ function showAppShell() {
   document.body.classList.remove('landing-mode');
 }
 
-function openAuth(login = true) {
-  showAppShell();
-  auth(login);
-}
-
-// Landing page button handlers
-landingLoginBtn.onclick = () => openAuth(true);
-landingSignupBtn.onclick = () => openAuth(false);
-landingCtaSignup.onclick = () => openAuth(false);
-landingCtaLogin.onclick = () => openAuth(true);
-landingFinalSignup.onclick = () => openAuth(false);
+// Landing page button handlers - open auth modal but stay on landing page until auth succeeds
+landingLoginBtn.onclick = () => auth(true);
+landingSignupBtn.onclick = () => auth(false);
+landingCtaSignup.onclick = () => auth(false);
+landingCtaLogin.onclick = () => auth(true);
+landingFinalSignup.onclick = () => auth(false);
 
 async function startApp() {
   try {
