@@ -2036,12 +2036,17 @@ footer button:hover {
   animation: fadeIn var(--transition-base);
 }
 
+.modal-backdrop[hidden] {
+  display: none;
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
 .modal {
+  position: relative;
   width: 100%;
   max-width: 480px;
   max-height: 90vh;

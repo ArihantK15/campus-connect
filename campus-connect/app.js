@@ -23,7 +23,7 @@ function eventFromApi(record) {
  const image = record.image_url && record.image_url.trim() ? record.image_url.trim() : `assets/event-${imageNumber}.jpg`;
  const price = typeof record.price === 'number' && record.price >= 0 ? record.price : null;
  const description = record.description && record.description.trim() ? record.description.trim() : 'The organizer has not added a description yet.';
- const host = record.organiser_id ? 'Campus organizer' : 'Campus organizer';
+ const host = record.organiser_email || 'Campus organizer';
  return {
   id:record.id,title,subtitle:description.slice(0,120)+(description.length>120?'…':''),
   category,day,month,year,dateKey,
@@ -64,7 +64,7 @@ const paths = {
 const icon = (name, filled=false) => `<svg class="icon" viewBox="0 0 24 24" fill="${filled?'currentColor':'none'}" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]||paths.discover}</svg>`;
 const memory = new Map(); let storageWarning = false;
 function read(key, fallback) { try { const raw = localStorage.getItem('cc-'+key); return raw === null ? (memory.get(key) ?? fallback) : JSON.parse(raw); } catch { return memory.get(key) ?? fallback; } }
-function write(key, value) { memory.set(key,value); try { localStorage.setItem('cc-'+key,JSON.stringify(value)); } catch { if (!storageWarning) { storageWarning=true; setTimeout(()=>toast('Browser storage is unavailable. Changes will last only for this session.'),0); } } }
+function write(key, value) { memory.set(key,value); try { localStorage.setItem('cc-'+key,JSON.stringify(value)); } catch { if (!storageWarning) { storageWarning=true; setTimeout(()=>{ if (document.getElementById('toast')) toast('Browser storage is unavailable. Changes will last only for this session.'); },0); } } }
 const validIds = value => Array.isArray(value) ? [...new Set(value.filter(id=>events.some(event=>event.id===id)))] : [];
 let profiles = read('profiles',{}); if (!profiles || typeof profiles!=='object' || Array.isArray(profiles)) profiles={};
 let user = null;
@@ -222,7 +222,7 @@ function openModal(html) {
  $('.sidebar').inert=true;$('.app').inert=true;$('.skip-link').inert=true;
  normalizeIcons($('#modal-content'));
  // Re-attach close button handler since content was replaced
- $('#modal-content .modal-close').onclick=closeModal;
+ $('.modal-close').onclick=closeModal;
  $('.modal').scrollTop=0;$('.modal').focus();
 }
 function closeModal() {
@@ -590,15 +590,10 @@ async function loadOrganizerDashboard() {
   const eventIds = events.map(e => e.id);
   let registrationCounts = {};
   
-  if (eventIds.length > 0) {
-   // Fetch registrations for all events
-   const regsResponse = await api.fetch(`/me/registrations`, { auth: true });
-   const myRegs = regsResponse || [];
-   // Count registrations per event
-   myRegs.forEach(reg => {
-    registrationCounts[reg.event_id] = (registrationCounts[reg.event_id] || 0) + 1;
-   });
-  }
+  await Promise.all(events.map(async event => {
+   const rows = await api.getEventRegistrations(event.id);
+   registrationCounts[event.id] = rows.length;
+  }));
   
   // Render stats
   const totalEvents = events.length;
@@ -635,7 +630,7 @@ async function loadOrganizerDashboard() {
      ${events.map(e => {
       const regCount = registrationCounts[e.id] || 0;
       const isPast = e.timestamp && new Date(e.timestamp) < new Date();
-      const isFull = e.capacity && regCount >= e.capacity;
+      const isFull = e.capacity !== null && regCount >= e.capacity;
       let statusClass = 'upcoming';
       let statusText = 'Upcoming';
       if (isPast) { statusClass = 'past'; statusText = 'Past'; }
@@ -647,7 +642,7 @@ async function loadOrganizerDashboard() {
         <td>${e.timestamp ? new Date(e.timestamp).toLocaleString() : 'TBA'}</td>
         <td>${esc(e.location || 'TBA')}</td>
         <td>${e.capacity !== null ? e.capacity : 'Unlimited'}</td>
-        <td>${regCount}${e.capacity ? ' / ' + e.capacity : ''}</td>
+        <td>${regCount}${e.capacity !== null ? ' / ' + e.capacity : ''}</td>
         <td><span class="status-badge status-${statusClass}">${statusText}</span></td>
         <td>
          <button class="secondary-btn edit-event-btn" data-event-id="${esc(e.id)}">${icon('chevron')} Edit</button>
@@ -718,13 +713,12 @@ function showEventRegistrations(event, registrations) {
   <h2>${esc(event.title)}</h2>
   <p>${registrations.length} registration${registrations.length !== 1 ? 's' : ''}</p>
   <table class="registrations-table">
-   <thead><tr><th>Name</th><th>Email</th><th>Registered</th></tr></thead>
+   <thead><tr><th>Email</th><th>Registered</th></tr></thead>
    <tbody>
     ${registrations.map(r => `
      <tr>
-      <td>${esc(r.user_id)}</td>
-      <td>${esc(r.user_id)}</td>
-      <td>${r.createdAt ? new Date(r.createdAt).toLocaleString() : 'Unknown'}</td>
+      <td>${esc(r.user_email || 'Attendee')}</td>
+      <td>${r.createdAt ? esc(new Date(r.createdAt).toLocaleString()) : 'Unknown'}</td>
      </tr>
     `).join('')}
    </tbody>

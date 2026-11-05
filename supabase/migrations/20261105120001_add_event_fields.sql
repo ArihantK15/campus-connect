@@ -12,8 +12,13 @@ alter table public.events
 do $$
 begin
     if not exists (
-        select 1 from information_schema.check_constraints
-        where constraint_name = 'events_price_check'
+        select 1
+          from pg_constraint constraint_row
+          join pg_class table_row on table_row.oid = constraint_row.conrelid
+          join pg_namespace schema_row on schema_row.oid = table_row.relnamespace
+         where schema_row.nspname = 'public'
+           and table_row.relname = 'events'
+           and constraint_row.conname = 'events_price_check'
     ) then
         alter table public.events
         add constraint events_price_check
@@ -25,8 +30,13 @@ end $$;
 do $$
 begin
     if not exists (
-        select 1 from information_schema.check_constraints
-        where constraint_name = 'events_capacity_check'
+        select 1
+          from pg_constraint constraint_row
+          join pg_class table_row on table_row.oid = constraint_row.conrelid
+          join pg_namespace schema_row on schema_row.oid = table_row.relnamespace
+         where schema_row.nspname = 'public'
+           and table_row.relname = 'events'
+           and constraint_row.conname = 'events_capacity_check'
     ) then
         alter table public.events
         add constraint events_capacity_check

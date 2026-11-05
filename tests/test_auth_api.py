@@ -132,6 +132,58 @@ class AuthenticatedAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 503)
         self.assertNotIn(service_role_key, response.get_data(as_text=True))
 
+    def test_admin_route_uses_shared_auth_and_checks_database_role(self):
+        with patch.object(service, "get_one", return_value=self.app_user):
+            response = self.client.get("/api/admin/users", headers={"Authorization": "Bearer token"})
+        self.assertEqual(response.status_code, 403)
+        self.public_client.auth.get_user.assert_called_once_with("token")
+        self.service_client.table.assert_not_called()
+
+    def test_admin_pagination_rejects_bad_and_non_positive_values(self):
+        admin = {**self.app_user, "role": "admin"}
+        with patch.object(service, "get_one", return_value=admin):
+            for query in ("page=nope", "page=0", "per_page=-1"):
+                with self.subTest(query=query):
+                    response = self.client.get(f"/api/admin/users?{query}", headers={"Authorization": "Bearer token"})
+                    self.assertEqual(response.status_code, 400)
+
+    def test_event_validation_rejects_naive_timestamps_and_unknown_fields(self):
+        self.auth_user.user_metadata["role"] = "organizer"
+        organizer = {**self.app_user, "role": "organizer"}
+        for payload in (
+            {"title": "Meetup", "timestamp": "2026-11-05T12:00:00"},
+            {"title": "Meetup", "organizer_id": APP_USER_ID},
+        ):
+            with self.subTest(payload=payload), patch.object(service, "get_one", return_value=organizer):
+                response = self.client.post("/api/events", json=payload, headers={"Authorization": "Bearer token"})
+                self.assertEqual(response.status_code, 400)
+        self.service_client.table.assert_not_called()
+
+    def test_admin_cannot_remove_own_role(self):
+        admin = {**self.app_user, "role": "admin"}
+        with patch.object(service, "get_one", return_value=admin):
+            response = self.client.patch(
+                f"/api/admin/users/{APP_USER_ID}",
+                json={"role": "attendee"},
+                headers={"Authorization": "Bearer token"},
+            )
+        self.assertEqual(response.status_code, 400)
+
+    def test_organizer_dashboard_counts_each_event_registrations(self):
+        organizer = {**self.app_user, "role": "organizer"}
+        rows = [{"id": EVENT_ID, "organiser_id": APP_USER_ID, "title": "Meetup", "capacity": 0}]
+        with (
+            patch.object(service, "get_one", side_effect=[organizer, {"email": organizer["email"]}]),
+            patch.object(service.supabase_public, "table", create=True) as table,
+        ):
+            query = table.return_value.select.return_value
+            query.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(data=rows)
+            response = self.client.get(
+                f"/api/events?organiser_id={APP_USER_ID}", headers={"Authorization": "Bearer token"}
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json[0]["organiser_email"], organizer["email"])
+
 
 if __name__ == "__main__":
     unittest.main()

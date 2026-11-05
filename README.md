@@ -13,20 +13,26 @@ user-scoped registration operations with a server-only service-role key.
    in the Supabase SQL Editor. It links confirmed Auth users to existing app
    profiles by email, or creates a new attendee profile. Resolve any
    case-insensitive duplicate emails in `public.users` before applying it.
-3. In Supabase Auth, enable email confirmations and add your local site URL to
+3. Apply [`supabase/migrations/20261105120000_add_admin_role.sql`](supabase/migrations/20261105120000_add_admin_role.sql),
+   [`supabase/migrations/20261105120001_add_event_fields.sql`](supabase/migrations/20261105120001_add_event_fields.sql),
+   and [`supabase/migrations/20261105120002_enforce_unique_user_emails.sql`](supabase/migrations/20261105120002_enforce_unique_user_emails.sql)
+   in timestamp order. The last migration stops if duplicate emails remain.
+4. In Supabase Auth, enable email confirmations and add your local site URL to
    the allowed redirect URLs. Run `python app.py` for the fixed local address
    `http://127.0.0.1:5002`; the macOS launcher may select another available
    port, which must also be on the redirect allow list.
-4. Copy `.env.example` to `.env`. Set `SUPABASE_URL`,
+5. Copy `.env.example` to `.env`. Set `SUPABASE_URL`,
    `SUPABASE_PUBLISHABLE_KEY` (or legacy `SUPABASE_KEY`), and
    `SUPABASE_SERVICE_ROLE_KEY`. Never expose or commit the service-role key.
-5. Install dependencies with `pip install -r requirements.txt` and run
+6. Install dependencies with `pip install -r requirements.txt` and run
    `python app.py`, or open [`campus-connect/Start.command`](campus-connect/Start.command).
 
 Hosted Supabase projects require verified email for account linking. Existing
 seed emails ending in `.test` cannot receive confirmation messages; use a real
 address or a dedicated test identity. User role is taken from `public.users`,
-not editable Auth metadata. New signups receive the `attendee` role.
+not editable Auth metadata. New signups receive the `attendee` role. The admin
+migration does not create a login-capable admin account: promote a verified
+account to `admin` through a trusted database operator before using the admin UI.
 
 ## API
 

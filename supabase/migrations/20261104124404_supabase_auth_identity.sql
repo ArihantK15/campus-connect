@@ -39,6 +39,7 @@ begin
             from public.users as app_user
            where lower(app_user.email) = lower(new.email)
              and app_user.auth_user_id is null
+             and app_user.id <> '00000000-0000-4000-8000-000000000000'::uuid
            order by app_user.id
            limit 2
       ) as candidate;
