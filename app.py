@@ -682,6 +682,16 @@ def admin_delete_user(user_id):
             return jsonify({"error": "User not found."}), 404
         if user_id == g.app_user["id"]:
             return jsonify({"error": "You cannot delete your own admin account."}), 400
+        owned_events = (
+            supabase.table("events")
+            .select("id", count="exact")
+            .eq("organiser_id", user_id)
+            .execute()
+        )
+        if (owned_events.count or 0) > 0:
+            return jsonify({
+                "error": "This user still owns events. Delete or reassign those events before deleting the user."
+            }), 409
         # Prevent deleting the last admin
         admin_count = supabase.table("users").select("id", count="exact").eq("role", "admin").execute()
         if (admin_count.count or 0) <= 1:

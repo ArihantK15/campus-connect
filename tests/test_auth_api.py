@@ -184,6 +184,23 @@ class AuthenticatedAPITests(unittest.TestCase):
             )
         self.assertEqual(response.status_code, 400)
 
+    def test_admin_user_delete_preserves_data_when_user_owns_events(self):
+        admin = {**self.app_user, "role": "admin"}
+        target = {"id": EVENT_ID, "role": "organizer"}
+        query = Mock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.execute.return_value = SimpleNamespace(count=2, data=[])
+        with (
+            patch.object(service, "get_one", side_effect=[admin, target]),
+            patch.object(self.service_client, "table", return_value=query),
+        ):
+            response = self.client.delete(
+                f"/api/admin/users/{EVENT_ID}", headers={"Authorization": "Bearer token"}
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("still owns events", response.json["error"])
+
     def test_organizer_dashboard_counts_each_event_registrations(self):
         organizer = {**self.app_user, "role": "organizer"}
         rows = [{"id": EVENT_ID, "organiser_id": APP_USER_ID, "title": "Meetup", "capacity": 0}]
