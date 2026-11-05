@@ -257,14 +257,15 @@ function auth(login=true,draft={}) {
    if(!Array.isArray(serverRegistrations))throw new Error('The registrations API returned an invalid response.');
    if(!form.isConnected||$('#modal').hidden)return;
    const guestSaved=[...saved];user=account;restoreProfile();registered=[...new Set(serverRegistrations.map(row=>row.event_id).filter(id=>events.some(item=>item.id===id)))];saved=[...new Set([...saved,...guestSaved])];persist();profile();render();
-   if(pending?.type==='event'){
-    const eventToRegister=events.find(item=>item.id===pending.id);pending=null;write('auth-pending',null);
-    if(eventToRegister)confirmRegistration(eventToRegister);else{closeModal();toast('That event is no longer available.');}
-   } else if(pending?.type==='community'){
-    const id=pending.id;pending=null;write('auth-pending',null);
-    if(Number.isInteger(id)&&id>=0&&id<communities.length&&!joined.includes(id))joined.push(id);
-    persist();render();closeModal();toast('You’re part of the community!');
-   } else {closeModal();toast(`Welcome${login?' back':''}, ${user.name.split(' ')[0]}!`);}
+      showAppShell();
+      if(pending?.type==='event'){
+       const eventToRegister=events.find(item=>item.id===pending.id);pending=null;write('auth-pending',null);
+       if(eventToRegister)confirmRegistration(eventToRegister);else{closeModal();toast('That event is no longer available.');}
+      } else if(pending?.type==='community'){
+       const id=pending.id;pending=null;write('auth-pending',null);
+       if(Number.isInteger(id)&&id>=0&&id<communities.length&&!joined.includes(id))joined.push(id);
+       persist();render();closeModal();toast('You're part of the community!');
+      } else {closeModal();toast(`Welcome${login?' back':''}, ${user.name.split(' ')[0]}!`);}
   } catch(error) {
    console.error('Authentication failed:',error);
    if(error.status===401||error.status===403)api.clearSession();
@@ -420,6 +421,7 @@ $('#profile-btn').onclick=()=>{
   catch(error){signOutFailed=true;console.error('Supabase sign-out failed:',error);}
   finally {
    persist();user=null;api.clearSession();restoreProfile();render();closeModal();
+   showLandingPage();
    toast(signOutFailed?'You were signed out on this device, but Supabase could not revoke the server session.':'Logged out. Your browser-only preferences are saved.');
   }
  };
@@ -929,26 +931,74 @@ function setupAdminEventActions() {
 }
 
 $('#results-count').textContent='Loading events…';
+
+// Landing page elements
+const landingPage = $('#landing-page');
+const appShell = $('#app-shell');
+const landingLoginBtn = $('#landing-login');
+const landingSignupBtn = $('#landing-signup');
+const landingCtaSignup = $('#landing-cta-signup');
+const landingCtaLogin = $('#landing-cta-login');
+const landingFinalSignup = $('#landing-final-signup');
+
+function showLandingPage() {
+  landingPage.hidden = false;
+  appShell.hidden = true;
+  document.body.classList.add('landing-mode');
+}
+
+function showAppShell() {
+  landingPage.hidden = true;
+  appShell.hidden = false;
+  document.body.classList.remove('landing-mode');
+}
+
+function openAuth(login = true) {
+  showAppShell();
+  auth(login);
+}
+
+// Landing page button handlers
+landingLoginBtn.onclick = () => openAuth(true);
+landingSignupBtn.onclick = () => openAuth(false);
+landingCtaSignup.onclick = () => openAuth(false);
+landingCtaLogin.onclick = () => openAuth(true);
+landingFinalSignup.onclick = () => openAuth(false);
+
 async function startApp() {
- try {
-  await api.initialize();
-  if(api.initialError)toast(api.initialError);
-  if(api.hasSession) {
-   try {
-    const account=await api.getMe();
-    if(!account||typeof account.email!=='string'||typeof account.name!=='string')throw new Error('Your account profile could not be loaded.');
-    user=account;restoreProfile();
-   } catch(error) {
-    if(error.status===401||error.status===403)api.clearSession();
-    else {console.error('Could not restore the Supabase session:',error);toast(error.message||'Your session could not be restored.');}
-   }
+  try {
+    await api.initialize();
+    if (api.initialError) toast(api.initialError);
+    
+    if (api.hasSession) {
+      try {
+        const account = await api.getMe();
+        if (!account || typeof account.email !== 'string' || typeof account.name !== 'string') {
+          throw new Error('Your account profile could not be loaded.');
+        }
+        user = account;
+        restoreProfile();
+        showAppShell();
+      } catch (error) {
+        if (error.status === 401 || error.status === 403) {
+          api.clearSession();
+        } else {
+          console.error('Could not restore the Supabase session:', error);
+          toast(error.message || 'Your session could not be restored.');
+        }
+        showLandingPage();
+      }
+    } else {
+      showLandingPage();
+    }
+  } catch (error) {
+    console.error('Supabase authentication is unavailable:', error);
+    toast(error.message || 'Supabase authentication is unavailable.');
+    showLandingPage();
   }
- } catch(error) {
-  console.error('Supabase authentication is unavailable:',error);
-  toast(error.message||'Supabase authentication is unavailable.');
- }
- await loadEvents();
- setPage(location.hash.slice(1)||'discover');
- resumePendingAction();
+  
+  await loadEvents();
+  setPage(location.hash.slice(1) || 'discover');
+  resumePendingAction();
 }
 startApp();
