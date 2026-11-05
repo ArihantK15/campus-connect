@@ -14,6 +14,11 @@ begin
         select 1 from information_schema.check_constraints
         where constraint_name = 'users_role_check'
     ) then
+        -- First, fix any invalid roles in existing data
+        update public.users
+        set role = 'attendee'
+        where role not in ('attendee', 'organizer', 'admin');
+        
         alter table public.users
         add constraint users_role_check
         check (role in ('attendee', 'organizer', 'admin'));
