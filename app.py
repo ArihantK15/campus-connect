@@ -176,10 +176,22 @@ def validate_event_fields(payload, *, partial=False):
             if value is not None and not isinstance(value, str):
                 return None, jsonify({"error": f"{field} must be a string or null."}), 400
             if field == "image_url" and value:
+                from posixpath import normpath
                 from urllib.parse import urlparse
                 parsed = urlparse(value)
-                if parsed.scheme not in ("http", "https") or not parsed.netloc:
-                    return None, jsonify({"error": "image_url must be an absolute HTTP or HTTPS URL."}), 400
+                if parsed.scheme or parsed.netloc:
+                    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                        return None, jsonify({"error": "image_url must use HTTP or HTTPS."}), 400
+                else:
+                    relative_path = normpath(value)
+                    if (
+                        not relative_path.startswith("assets/")
+                        or relative_path.startswith("../")
+                        or "\\" in value
+                        or parsed.query
+                        or parsed.fragment
+                    ):
+                        return None, jsonify({"error": "image_url must be an HTTP(S) URL or a path under assets/."}), 400
             result[field] = value.strip() if isinstance(value, str) else value
     if "price" in payload:
         value = payload["price"]
@@ -219,13 +231,31 @@ def list_events():
             query = query.eq("organiser_id", organiser_id)
         
         response = query.order("timestamp").execute()
-        events = response.data or []
-        if organiser_id and events:
-            organiser = get_one(supabase, "users", "email", "id", organiser_id)
-            organiser_email = organiser.get("email") if organiser else "Unknown"
-            for event in events:
-                event["organiser_email"] = organiser_email
-        return jsonify(events)
+        return jsonify(response.data or [])
+    except APIError as error:
+        return api_error(error)
+    except HTTPError:
+        app.logger.warning("Supabase is unreachable")
+        return jsonify({"error": "Supabase is unreachable."}), 503
+
+
+@app.get("/api/me/events")
+@require_auth
+def current_user_events():
+    if g.app_user.get("role") not in ("organizer", "admin"):
+        return jsonify({"error": "Only organizers and admins can view organizer events."}), 403
+    try:
+        response = (
+            supabase.table("events")
+            .select("id,organiser_id,title,capacity,timestamp,description,location,price,image_url,created_at")
+            .eq("organiser_id", g.app_user["id"])
+            .order("timestamp")
+            .execute()
+        )
+        rows = response.data or []
+        for event in rows:
+            event["organiser_email"] = g.app_user["email"]
+        return jsonify(rows)
     except APIError as error:
         return api_error(error)
     except HTTPError:
@@ -460,13 +490,21 @@ def event_registrations(event_id):
     if not is_valid_uuid(event_id):
         return jsonify({"error": "Invalid event id."}), 400
     try:
-        if g.app_user.get("role") != "organizer":
-            return jsonify({"error": "Only organizers can view attendee lists."}), 403
+        if g.app_user.get("role") not in ("organizer", "admin"):
+            return jsonify({"error": "Only organizers and admins can view attendee lists."}), 403
         event = get_one(supabase, "events", "id,organiser_id", "id", event_id)
         if event is None:
             return jsonify({"error": "Event not found."}), 404
-        if event.get("organiser_id") != g.app_user["id"]:
+        if g.app_user.get("role") != "admin" and event.get("organiser_id") != g.app_user["id"]:
             return jsonify({"error": "Only the event organizer can view this list."}), 403
+        if request.args.get("count_only", "").lower() == "true":
+            response = (
+                supabase.table("registrations")
+                .select("id", count="exact")
+                .eq("event_id", event_id)
+                .execute()
+            )
+            return jsonify({"count": response.count or 0})
         response = (
             supabase.table("registrations")
             .select("id,event_id,user_id,createdAt")
@@ -682,8 +720,29 @@ def admin_list_events():
             organisers = {o["id"]: o["email"] for o in org_response.data or []}
 
         events = response.data or []
+        event_ids = [event["id"] for event in events]
+        registration_counts = {event_id: 0 for event_id in event_ids}
+        if event_ids:
+            offset = 0
+            total = None
+            while total is None or offset < total:
+                registrations = (
+                    supabase.table("registrations")
+                    .select("event_id", count="exact")
+                    .in_("event_id", event_ids)
+                    .range(offset, offset + 999)
+                    .execute()
+                )
+                rows = registrations.data or []
+                for registration in rows:
+                    registration_counts[registration["event_id"]] += 1
+                total = registrations.count or 0
+                offset += len(rows)
+                if not rows:
+                    break
         for event in events:
             event["organiser_email"] = organisers.get(event.get("organiser_id"), "Unknown")
+            event["registration_count"] = registration_counts.get(event["id"], 0)
 
         return jsonify({
             "events": events,

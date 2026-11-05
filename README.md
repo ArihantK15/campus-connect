@@ -42,10 +42,11 @@ account to `admin` through a trusted database operator before using the admin UI
 | GET | `/api/events` | List events |
 | GET | `/api/events/{id}` | Event details |
 | GET | `/api/me` | Return the verified user's linked app profile |
+| GET | `/api/me/events` | List the authenticated organizer's events |
 | POST | `/api/registrations` | Register the authenticated attendee; returns 201 or 409 |
 | DELETE | `/api/registrations/{event_id}` | Cancel the authenticated attendee's registration |
 | GET | `/api/me/registrations` | List the authenticated user's registrations |
-| GET | `/api/events/{id}/registrations` | Organizer-only attendee list for their own event |
+| GET | `/api/events/{id}/registrations` | Organizer/admin attendee list; `?count_only=true` returns an exact count |
 
 Protected endpoints require `Authorization: Bearer <Supabase access token>`.
 Event reads are public; registration ownership and organizer access are

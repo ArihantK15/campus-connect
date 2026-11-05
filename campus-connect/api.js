@@ -234,6 +234,18 @@ class CampusConnectAPI {
     return this.fetch('/me/registrations', { auth: true });
   }
 
+  async getMyEvents() {
+    return this.fetch('/me/events', { auth: true });
+  }
+
+  async getEventRegistrationCount(eventId) {
+    const result = await this.fetch(
+      `/events/${encodeURIComponent(eventId)}/registrations?count_only=true`,
+      { auth: true },
+    );
+    return result.count;
+  }
+
   async getEventRegistrations(eventId) {
     return this.fetch(`/events/${encodeURIComponent(eventId)}/registrations`, { auth: true });
   }

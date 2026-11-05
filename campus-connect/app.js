@@ -1,4 +1,4 @@
-import api from './api.js';
+import api from './api.js?v=2';
 
 // Landing page elements (declared early for closeModal access)
 let landingPage = null;
@@ -471,7 +471,7 @@ function openEventForm(eventToEdit = null) {
    <label class="form-field">Location<input name="location" placeholder="Main Auditorium, Westbridge University" value="${esc(e.location || '')}" maxlength="200"></label>
    <label class="form-field">Capacity (optional)<input name="capacity" type="number" min="0" placeholder="120" value="${esc(e.capacity !== null && e.capacity !== undefined ? e.capacity : '')}"></label>
    <label class="form-field">Price (USD)<input name="price" type="number" min="0" step="0.01" placeholder="0" value="${esc(e.price !== null && e.price !== undefined ? e.price : '0')}"></label>
-   <label class="form-field">Image URL (optional)<input name="image_url" type="url" placeholder="assets/event-1.jpg or https://..." value="${esc(e.image_url || '')}"></label>
+   <label class="form-field">Image path or URL (optional)<input name="image_url" type="text" maxlength="2048" placeholder="assets/event-1.jpg or https://..." value="${esc(e.image_url || '')}"></label>
    <label class="form-field">Description<textarea name="description" rows="4" placeholder="Tell attendees what this event is about...">${esc(e.description || '')}</textarea></label>
    <p id="event-form-error" class="form-error" role="alert" hidden></p>
    <div class="form-actions">
@@ -583,16 +583,13 @@ async function loadOrganizerDashboard() {
  
  try {
   // Get organizer's events
-  const eventsResponse = await api.fetch(`/events?organiser_id=${user.id}`, { auth: true });
-  const events = eventsResponse || [];
+  const events = await api.getMyEvents();
   
   // Get registration counts for each event
-  const eventIds = events.map(e => e.id);
   let registrationCounts = {};
   
   await Promise.all(events.map(async event => {
-   const rows = await api.getEventRegistrations(event.id);
-   registrationCounts[event.id] = rows.length;
+   registrationCounts[event.id] = await api.getEventRegistrationCount(event.id);
   }));
   
   // Render stats

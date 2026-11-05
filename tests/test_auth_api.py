@@ -159,6 +159,21 @@ class AuthenticatedAPITests(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
         self.service_client.table.assert_not_called()
 
+    def test_event_image_accepts_local_assets_but_rejects_script_urls(self):
+        with service.app.test_request_context():
+            fields, error, status = service.validate_event_fields(
+                {"title": "Meetup", "image_url": "assets/event-1.jpg"}
+            )
+            self.assertIsNone(error)
+            self.assertIsNone(status)
+            self.assertEqual(fields["image_url"], "assets/event-1.jpg")
+
+            _fields, error, status = service.validate_event_fields(
+                {"title": "Meetup", "image_url": "javascript:alert(1)"}
+            )
+            self.assertEqual(status, 400)
+            self.assertEqual(error.get_json()["error"], "image_url must use HTTP or HTTPS.")
+
     def test_admin_cannot_remove_own_role(self):
         admin = {**self.app_user, "role": "admin"}
         with patch.object(service, "get_one", return_value=admin):
@@ -172,17 +187,57 @@ class AuthenticatedAPITests(unittest.TestCase):
     def test_organizer_dashboard_counts_each_event_registrations(self):
         organizer = {**self.app_user, "role": "organizer"}
         rows = [{"id": EVENT_ID, "organiser_id": APP_USER_ID, "title": "Meetup", "capacity": 0}]
+        query = Mock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.order.return_value = query
+        query.execute.return_value = SimpleNamespace(data=rows)
         with (
-            patch.object(service, "get_one", side_effect=[organizer, {"email": organizer["email"]}]),
-            patch.object(service.supabase_public, "table", create=True) as table,
+            patch.object(service, "get_one", return_value=organizer),
+            patch.object(self.service_client, "table", return_value=query),
         ):
-            query = table.return_value.select.return_value
-            query.eq.return_value.order.return_value.execute.return_value = SimpleNamespace(data=rows)
             response = self.client.get(
-                f"/api/events?organiser_id={APP_USER_ID}", headers={"Authorization": "Bearer token"}
+                "/api/me/events", headers={"Authorization": "Bearer token"}
             )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json[0]["organiser_email"], organizer["email"])
+
+    def test_public_organizer_filter_does_not_fetch_or_expose_email(self):
+        query = Mock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.order.return_value = query
+        query.execute.return_value = SimpleNamespace(data=[{"id": EVENT_ID, "title": "Meetup"}])
+        with (
+            patch.object(service.supabase_public, "table", return_value=query, create=True),
+            patch.object(service, "get_one") as get_one,
+        ):
+            response = self.client.get(f"/api/events?organiser_id={APP_USER_ID}")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("organiser_email", response.json[0])
+        get_one.assert_not_called()
+
+    def test_current_user_events_rejects_attendees(self):
+        with patch.object(service, "get_one", return_value=self.app_user):
+            response = self.client.get("/api/me/events", headers={"Authorization": "Bearer token"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_organizer_can_fetch_exact_registration_count(self):
+        organizer = {**self.app_user, "role": "organizer"}
+        query = Mock()
+        query.select.return_value = query
+        query.eq.return_value = query
+        query.execute.return_value = SimpleNamespace(count=7, data=[])
+        with (
+            patch.object(service, "get_one", side_effect=[organizer, {"id": EVENT_ID, "organiser_id": APP_USER_ID}]),
+            patch.object(self.service_client, "table", return_value=query),
+        ):
+            response = self.client.get(
+                f"/api/events/{EVENT_ID}/registrations?count_only=true",
+                headers={"Authorization": "Bearer token"},
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json, {"count": 7})
 
 
 if __name__ == "__main__":
