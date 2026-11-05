@@ -2942,3 +2942,77 @@ footer button:hover {
   }
 }
 
+@media (max-width: 720px) {
+  /* Choosing a user already enters the app; the hero button covers the rest. */
+  #landing-enter {
+    display: none;
+  }
+
+  .landing-header .brand {
+    font-size: 1rem;
+    gap: var(--space-2);
+  }
+
+  .landing-nav {
+    min-width: 0;
+  }
+
+  .landing-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .landing-hero-content,
+  .landing-hero-visual {
+    min-width: 0;
+  }
+
+  .landing-cta {
+    flex-wrap: wrap;
+  }
+
+  .hero-preview {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 720px) {
+  /* Keep the user switcher reachable: stop .app growing to its content width. */
+  #app-shell .app {
+    min-width: 0;
+    max-width: 100%;
+    width: 100%;
+  }
+
+  /* Drop decorative header items. */
+  .app > header .header-right .live-dot,
+  .app > header .header-right .semester {
+    display: none;
+  }
+
+  .app > header {
+    gap: var(--space-2);
+  }
+
+  .app > header .breadcrumb {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .app > header .header-right {
+    flex: none;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  #app-user-switch .user-select {
+    max-width: 112px;
+  }
+
+  #profile-name {
+    display: none;
+  }
+}
+

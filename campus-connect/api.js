@@ -3,6 +3,12 @@ const USER_KEY = 'cc-current-user-id';
 
 // Campus Connect has no sign-in. The chosen user's id is sent in X-User-Id and
 // the server applies that user's role. The choice is remembered in this browser.
+function communityPath(communityId) {
+  const id = Number(communityId);
+  if (!Number.isInteger(id) || id < 1) throw new Error('Invalid community id.');
+  return id;
+}
+
 class CampusConnectAPI {
   constructor() {
     this.userId = null;
@@ -98,6 +104,7 @@ class CampusConnectAPI {
 
   async getEventRegistrationCount(eventId) {
     const result = await this.fetch(`/events/${encodeURIComponent(eventId)}/registrations?count_only=true`);
+    if (typeof result?.count !== 'number') throw new Error('The registration count response was invalid.');
     return result.count;
   }
 
@@ -136,11 +143,11 @@ class CampusConnectAPI {
   }
 
   async joinCommunity(communityId) {
-    return this.fetch(`/me/communities/${Number(communityId)}`, { method: 'PUT' });
+    return this.fetch(`/me/communities/${communityPath(communityId)}`, { method: 'PUT' });
   }
 
   async leaveCommunity(communityId) {
-    return this.fetch(`/me/communities/${Number(communityId)}`, { method: 'DELETE' });
+    return this.fetch(`/me/communities/${communityPath(communityId)}`, { method: 'DELETE' });
   }
 
   // Admin

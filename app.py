@@ -29,6 +29,14 @@ FRONTEND_DIR = PROJECT_ROOT / "campus-connect"
 ROLES = ("attendee", "organizer", "admin")
 CAMPUS_TIME_ZONE = ZoneInfo(os.environ.get("CAMPUS_TIME_ZONE", "Asia/Kolkata"))
 EVENT_SELECT = """
+    SELECT e.id, e.organiser_id, u.name AS organiser_name,
+           e.title, e.capacity, e.timestamp, e.description, e.location, e.price,
+           e.image_url, e.created_at
+    FROM events e
+    JOIN users u ON u.id = e.organiser_id
+"""
+# Admin-only variant: organizer emails are not public.
+ADMIN_EVENT_SELECT = """
     SELECT e.id, e.organiser_id, u.name AS organiser_name, u.email AS organiser_email,
            e.title, e.capacity, e.timestamp, e.description, e.location, e.price,
            e.image_url, e.created_at
@@ -410,9 +418,9 @@ def create_app(database_path=None):
 
     @app.get("/api/users")
     def list_users():
-        """Everyone who can be chosen in the user switcher."""
+        """Everyone who can be chosen in the user switcher (no emails)."""
         return jsonify(query_all(
-            """SELECT id, name, email, role FROM users
+            """SELECT id, name, role FROM users
                ORDER BY CASE role WHEN 'admin' THEN 0 WHEN 'organizer' THEN 1 ELSE 2 END, name"""
         ))
 
@@ -741,7 +749,7 @@ def create_app(database_path=None):
         page, per_page, offset = parse_pagination()
         total = db().execute("SELECT COUNT(*) FROM events").fetchone()[0]
         events = query_all(
-            EVENT_SELECT + " ORDER BY e.timestamp DESC LIMIT ? OFFSET ?",
+            ADMIN_EVENT_SELECT + " ORDER BY e.timestamp DESC LIMIT ? OFFSET ?",
             (per_page, offset),
         )
         for event in events:
@@ -753,7 +761,7 @@ def create_app(database_path=None):
     def admin_get_event(event_id):
         if not is_uuid(event_id):
             return error_response("Invalid event id.", 400)
-        event = fetch_event(event_id)
+        event = query_one(ADMIN_EVENT_SELECT + " WHERE e.id = ?", (event_id,))
         if event is None:
             return error_response("Event not found.", 404)
         event["registration_count"] = registration_count(event_id)
