@@ -264,7 +264,7 @@ function auth(login=true,draft={}) {
       } else if(pending?.type==='community'){
        const id=pending.id;pending=null;write('auth-pending',null);
        if(Number.isInteger(id)&&id>=0&&id<communities.length&&!joined.includes(id))joined.push(id);
-       persist();render();closeModal();toast('You're part of the community!');
+       persist();render();closeModal();toast("You're part of the community!");
       } else {closeModal();toast(`Welcome${login?' back':''}, ${user.name.split(' ')[0]}!`);}
   } catch(error) {
    console.error('Authentication failed:',error);
