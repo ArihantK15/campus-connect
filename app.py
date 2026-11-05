@@ -464,9 +464,11 @@ def create_app(database_path=None):
             "created_at": now_iso(),
             **data,
         }
-        columns = ", ".join(values)
-        placeholders = ", ".join("?" for _ in values)
-        db().execute(f"INSERT INTO events ({columns}) VALUES ({placeholders})", tuple(values.values()))
+        db().execute(
+            """INSERT INTO events (id, organiser_id, title, capacity, timestamp, description, location, price, image_url, created_at)
+               VALUES (:id, :organiser_id, :title, :capacity, :timestamp, :description, :location, :price, :image_url, :created_at)""",
+            values,
+        )
         return jsonify(fetch_event(event_id)), 201
 
     @app.patch("/api/events/<event_id>")
@@ -480,8 +482,21 @@ def create_app(database_path=None):
         if not data:
             return error_response("At least one event field is required.", 400)
         require_event_owner_or_admin(event_id)
-        assignments = ", ".join(f"{column} = ?" for column in data)
-        db().execute(f"UPDATE events SET {assignments} WHERE id = ?", (*data.values(), event_id))
+        params = {field: data.get(field) for field in EVENT_FIELDS}
+        params.update({f"has_{field}": field in data for field in EVENT_FIELDS})
+        params["id"] = event_id
+        db().execute(
+            """UPDATE events SET
+                 title = CASE WHEN :has_title THEN :title ELSE title END,
+                 capacity = CASE WHEN :has_capacity THEN :capacity ELSE capacity END,
+                 timestamp = CASE WHEN :has_timestamp THEN :timestamp ELSE timestamp END,
+                 description = CASE WHEN :has_description THEN :description ELSE description END,
+                 location = CASE WHEN :has_location THEN :location ELSE location END,
+                 price = CASE WHEN :has_price THEN :price ELSE price END,
+                 image_url = CASE WHEN :has_image_url THEN :image_url ELSE image_url END
+               WHERE id = :id""",
+            params,
+        )
         return jsonify(fetch_event(event_id))
 
     @app.delete("/api/events/<event_id>")
