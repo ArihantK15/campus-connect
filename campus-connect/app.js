@@ -220,7 +220,10 @@ function openModal(html) {
  const heading=$('#modal-content h2');if(heading)heading.id='dialog-title';
  $('#modal').hidden=false;document.body.style.overflow='hidden';
  $('.sidebar').inert=true;$('.app').inert=true;$('.skip-link').inert=true;
- normalizeIcons($('#modal-content'));$('.modal').scrollTop=0;$('.modal').focus();
+ normalizeIcons($('#modal-content'));
+ // Re-attach close button handler since content was replaced
+ $('#modal-content .modal-close').onclick=closeModal;
+ $('.modal').scrollTop=0;$('.modal').focus();
 }
 function closeModal() {
  $('#modal').hidden=true;document.body.style.overflow='';$('.sidebar').inert=false;$('.app').inert=false;$('.skip-link').inert=false;pending=null;write('auth-pending',null);
@@ -383,7 +386,6 @@ document.addEventListener('keydown',event=>{
   else if(!event.shiftKey&&(document.activeElement===items.at(-1)||document.activeElement===$('.modal'))){event.preventDefault();items[0].focus();}
  }
 });
-$('.modal-close').onclick=closeModal;
 $('#modal').addEventListener('click',event=>{if(event.target===$('#modal'))closeModal();});
 document.querySelectorAll('[data-category]').forEach(button=>button.onclick=()=>{category=button.dataset.category;render();});
 document.querySelectorAll('[data-page]').forEach(button=>button.onclick=()=>navigate(button.dataset.page));
@@ -1005,6 +1007,8 @@ async function startApp() {
   
   await loadEvents();
   setPage(location.hash.slice(1) || 'discover');
-  resumePendingAction();
+  if (user) {
+    resumePendingAction();
+  }
 }
 startApp();
