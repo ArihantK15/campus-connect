@@ -1,4 +1,4 @@
-import api from './api.js?v=3';
+import api from './api.js?v=4';
 
 // Landing page elements (declared early for closeModal access)
 let landingPage = null;
@@ -17,7 +17,7 @@ function eventFromApi(record) {
  const dateKey=parts?`${parts.year}-${parts.month}-${parts.day}`:null;
  const imageNumber=Array.from(record.id).reduce((sum,char)=>sum+char.charCodeAt(0),0)%8+1;
  const title=record.title.trim();
- const category=/product|design|open source|acid|career|tech|build/i.test(title)?'Tech & Career':'General';
+ const category=/music|fest|concert|band|dance/i.test(title)?'Music & Arts':/yoga|sport|wellness|fitness|mindful/i.test(title)?'Sports & Wellness':/garden|social|community|mixer|party|game/i.test(title)?'Social':/product|design|open source|acid|career|tech|build/i.test(title)?'Tech & Career':'General';
  // Use new fields from API if available, otherwise fall back to defaults
  const location = record.location && record.location.trim() ? record.location.trim() : 'Location to be announced';
  const image = record.image_url && record.image_url.trim() ? record.image_url.trim() : `assets/event-${imageNumber}.jpg`;
@@ -120,14 +120,13 @@ async function loadCommunities() {
   joined=communities.filter(community=>community.joined).map(community=>community.id);
  } catch(error) {
   console.error('Failed to load communities:',error);
-  communities=[];
-  joined=[];
+  toast('Communities could not be refreshed. Try again in a moment.');
  }
 }
 function expireSession(error) {
  if(error?.status!==401)return false;
- setCurrentUser(null);
- toast('Choose a user to continue.');
+ if(!$('#modal').hidden)closeModal();
+ setCurrentUser(null,{quiet:true}).then(()=>toast('That user is no longer available. Choose a user to continue.'));
  return true;
 }
 function updateHero() {
@@ -649,6 +648,7 @@ async function loadOrganizerDashboard() {
     try {
      await api.deleteEvent(eventId);
      toast('Event deleted.');
+     await loadEvents();
      loadOrganizerDashboard();
     } catch (error) {
      console.error('Failed to delete event:', error);
@@ -845,6 +845,7 @@ function setupAdminUserActions() {
    const newRole = e.target.value;
    try {
     await api.updateAdminUser(userId, newRole);
+    await refreshUsers();
     toast('User role updated.');
     loadAdminStats();
    } catch (error) {
@@ -861,6 +862,7 @@ function setupAdminUserActions() {
    if (!confirm('Delete this user? This cannot be undone.')) return;
    try {
     await api.deleteAdminUser(userId);
+    await refreshUsers();
     toast('User deleted.');
     loadAdminStats();
     loadAdminTab('users');
@@ -894,6 +896,7 @@ function setupAdminEventActions() {
    try {
     await api.deleteAdminEvent(eventId);
     toast('Event deleted.');
+    await loadEvents();
     loadAdminStats();
     loadAdminTab('events');
    } catch (error) {
@@ -947,17 +950,36 @@ function syncUserSelects() {
   document.querySelectorAll('[data-user-select]').forEach(select => { select.value = user ? user.id : ''; });
 }
 
-async function setCurrentUser(userId) {
+async function refreshUsers() {
+  try {
+    users = await api.getUsers();
+    populateUserSelects();
+  } catch (error) {
+    console.error('Failed to refresh sample users:', error);
+  }
+}
+
+async function setCurrentUser(userId, { quiet = false } = {}) {
+  await refreshUsers();
   const next = userId ? users.find(item => item.id === userId) : null;
   if (userId && !next) {
     toast('That user is no longer available.');
-    syncUserSelects();
-    return;
+    userId = null;
   }
-  user = next || null;
-  api.setUser(user ? user.id : null);
+  api.setUser(userId);
+  user = null;
+  if (next && userId) {
+    try {
+      user = { ...next, ...(await api.getMe()) };
+    } catch (error) {
+      console.error('Failed to load the selected user:', error);
+      api.setUser(null);
+      toast(error.message || 'That user could not be loaded.');
+    }
+  }
   saved = [];
   registered = [];
+  joined = [];
   await loadCommunities();
   if (user) {
     try {
@@ -968,8 +990,10 @@ async function setCurrentUser(userId) {
     }
   }
   render();
-  if (user) toast(`Now viewing as ${user.name} (${roleLabel(user.role)}).`);
-  else toast('Browsing as a guest. Choose a user to save, join or register.');
+  if (!quiet) {
+    if (user) toast(`Now viewing as ${user.name} (${roleLabel(user.role)}).`);
+    else toast('Browsing as a guest. Choose a user to save, join or register.');
+  }
   if (user) await resumePendingAction();
 }
 
@@ -995,7 +1019,16 @@ async function startApp() {
   populateUserSelects();
 
   const rememberedId = api.restoreUser();
-  user = rememberedId ? users.find(item => item.id === rememberedId) || null : null;
+  user = null;
+  const remembered = rememberedId ? users.find(item => item.id === rememberedId) : null;
+  if (remembered) {
+    try {
+      user = { ...remembered, ...(await api.getMe()) };
+    } catch (error) {
+      console.error('Could not restore the selected user:', error);
+      toast('Your previously selected user could not be restored. Choose a user to continue.');
+    }
+  }
   if (!user) api.setUser(null);
 
   await loadEvents();

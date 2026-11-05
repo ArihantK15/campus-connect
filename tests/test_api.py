@@ -4,10 +4,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-TMP_DIR = tempfile.TemporaryDirectory()
-os.environ["DATABASE_PATH"] = str(Path(TMP_DIR.name) / "test.db")
+# Importing `app` creates a module-level app; point it at a throwaway database
+# so importing never touches a developer's real data/ directory.
+_IMPORT_DIR = tempfile.TemporaryDirectory()
+os.environ["DATABASE_PATH"] = str(Path(_IMPORT_DIR.name) / "import.db")
 
-import app as campus  # noqa: E402  (imported after DATABASE_PATH is set)
+import app as campus  # noqa: E402
 
 
 def user_id(client, name):
@@ -15,15 +17,21 @@ def user_id(client, name):
     return next(user["id"] for user in users if user["name"] == name)
 
 
+def tearDownModule():
+    _IMPORT_DIR.cleanup()
+
+
 class CampusApiTests(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.client = campus.app.test_client()
-        cls.maya = user_id(cls.client, "Maya Chen")
-        cls.sam = user_id(cls.client, "Sam Rivera")
-        cls.avery = user_id(cls.client, "Avery Patel")
-        cls.taylor = user_id(cls.client, "Taylor Brooks")
-        cls.morgan = user_id(cls.client, "Morgan Ellis")
+    def setUp(self):
+        # A fresh, freshly seeded database for every test keeps tests independent.
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.client = campus.create_app(Path(self._dir.name) / "test.db").test_client()
+        self.maya = user_id(self.client, "Maya Chen")
+        self.sam = user_id(self.client, "Sam Rivera")
+        self.avery = user_id(self.client, "Avery Patel")
+        self.taylor = user_id(self.client, "Taylor Brooks")
+        self.morgan = user_id(self.client, "Morgan Ellis")
 
     def headers(self, user):
         return {"X-User-Id": user}
@@ -33,6 +41,13 @@ class CampusApiTests(unittest.TestCase):
         self.assertGreaterEqual(len(events), 4)
         self.assertIn("organiser_name", events[0])
         self.assertIn("Product Builders Meetup", [event["title"] for event in events])
+
+    def test_public_endpoints_do_not_expose_email_addresses(self):
+        self.assertTrue(all("email" not in user for user in self.client.get("/api/users").get_json()))
+        self.assertTrue(all("organiser_email" not in event for event in self.client.get("/api/events").get_json()))
+        self.assertEqual(self.client.get("/api/me", headers=self.headers(self.avery)).get_json()["email"], "avery@westbridge.edu")
+        admin_events = self.client.get("/api/admin/events", headers=self.headers(self.morgan)).get_json()["events"]
+        self.assertIn("organiser_email", admin_events[0])
 
     def test_writes_need_a_chosen_user_with_the_right_role(self):
         payload = {"title": "Nope"}
