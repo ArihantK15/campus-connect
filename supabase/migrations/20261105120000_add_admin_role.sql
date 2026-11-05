@@ -42,9 +42,21 @@ create policy "Events are publicly readable"
     to anon, authenticated
     using (true);
 
-drop policy if exists "Admins can manage events" on public.events;
-create policy "Admins can manage events"
-    on public.events for all
+drop policy if exists "Admins can insert events" on public.events;
+create policy "Admins can insert events"
+    on public.events for insert
+    to authenticated
+    with check (
+        exists (
+            select 1 from public.users
+            where auth_user_id = auth.uid()
+            and role = 'admin'
+        )
+    );
+
+drop policy if exists "Admins can update events" on public.events;
+create policy "Admins can update events"
+    on public.events for update
     to authenticated
     using (
         exists (
@@ -54,6 +66,18 @@ create policy "Admins can manage events"
         )
     )
     with check (
+        exists (
+            select 1 from public.users
+            where auth_user_id = auth.uid()
+            and role = 'admin'
+        )
+    );
+
+drop policy if exists "Admins can delete events" on public.events;
+create policy "Admins can delete events"
+    on public.events for delete
+    to authenticated
+    using (
         exists (
             select 1 from public.users
             where auth_user_id = auth.uid()
@@ -81,9 +105,21 @@ create policy "Admins can view all users"
         )
     );
 
-drop policy if exists "Admins can manage users" on public.users;
-create policy "Admins can manage users"
-    on public.users for insert, update, delete
+drop policy if exists "Admins can insert users" on public.users;
+create policy "Admins can insert users"
+    on public.users for insert
+    to authenticated
+    with check (
+        exists (
+            select 1 from public.users
+            where auth_user_id = auth.uid()
+            and role = 'admin'
+        )
+    );
+
+drop policy if exists "Admins can update users" on public.users;
+create policy "Admins can update users"
+    on public.users for update
     to authenticated
     using (
         exists (
@@ -93,6 +129,18 @@ create policy "Admins can manage users"
         )
     )
     with check (
+        exists (
+            select 1 from public.users
+            where auth_user_id = auth.uid()
+            and role = 'admin'
+        )
+    );
+
+drop policy if exists "Admins can delete users" on public.users;
+create policy "Admins can delete users"
+    on public.users for delete
+    to authenticated
+    using (
         exists (
             select 1 from public.users
             where auth_user_id = auth.uid()
@@ -120,9 +168,21 @@ create policy "Admins can view all registrations"
         )
     );
 
-drop policy if exists "Admins can manage registrations" on public.registrations;
-create policy "Admins can manage registrations"
-    on public.registrations for insert, update, delete
+drop policy if exists "Admins can insert registrations" on public.registrations;
+create policy "Admins can insert registrations"
+    on public.registrations for insert
+    to authenticated
+    with check (
+        exists (
+            select 1 from public.users
+            where auth_user_id = auth.uid()
+            and role = 'admin'
+        )
+    );
+
+drop policy if exists "Admins can update registrations" on public.registrations;
+create policy "Admins can update registrations"
+    on public.registrations for update
     to authenticated
     using (
         exists (
@@ -132,6 +192,18 @@ create policy "Admins can manage registrations"
         )
     )
     with check (
+        exists (
+            select 1 from public.users
+            where auth_user_id = auth.uid()
+            and role = 'admin'
+        )
+    );
+
+drop policy if exists "Admins can delete registrations" on public.registrations;
+create policy "Admins can delete registrations"
+    on public.registrations for delete
+    to authenticated
+    using (
         exists (
             select 1 from public.users
             where auth_user_id = auth.uid()
