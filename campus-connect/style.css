@@ -116,6 +116,10 @@
   padding: 0;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 html {
   font-size: 16px;
   -webkit-font-smoothing: antialiased;
@@ -212,6 +216,10 @@ svg {
    ======================================== */
 
 .landing-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 0;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
@@ -369,34 +377,6 @@ svg {
 .landing-trust {
   font-size: 0.875rem;
   color: var(--fg-subtle);
-}
-
-/* Stats */
-.landing-stats {
-  display: flex;
-  gap: var(--space-8);
-  margin-top: var(--space-8);
-  padding-top: var(--space-6);
-  border-top: 1px solid var(--border);
-}
-
-.stat {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.stat-value {
-  font-size: 2.5rem;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--fg);
-  font-variant-numeric: tabular-nums;
-}
-
-.stat-label {
-  font-size: 0.875rem;
-  color: var(--fg-muted);
 }
 
 /* Hero Visual */
@@ -2751,10 +2731,6 @@ footer button:hover {
     justify-content: center;
   }
   
-  .landing-stats {
-    justify-content: center;
-  }
-  
   .landing-hero-visual {
     order: -1;
   }
@@ -2806,14 +2782,6 @@ footer button:hover {
   
   .landing-hero {
     padding: var(--space-10) var(--space-4);
-  }
-  
-  .landing-stats {
-    gap: var(--space-5);
-  }
-  
-  .stat-value {
-    font-size: 2rem;
   }
   
   .features-grid {

@@ -9,13 +9,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="assets/fonts.css">
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <a class="skip-link" href="#main-content">Skip to main content</a>
 
   <!-- Landing Page (shown when not authenticated) -->
-  <main id="landing-page" class="landing-page" hidden>
+  <main id="landing-page" class="landing-page">
     <header class="landing-header">
       <a class="brand" href="#" aria-label="Campus Connect home">
         <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
@@ -44,20 +44,6 @@
         </div>
         <p class="landing-trust">No credit card · Supabase Auth · Open source</p>
         
-        <div class="landing-stats">
-          <div class="stat">
-            <span class="stat-value" data-count="247">0</span>
-            <span class="stat-label">Events this semester</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value" data-count="3891">0</span>
-            <span class="stat-label">Student registrations</span>
-          </div>
-          <div class="stat">
-            <span class="stat-value" data-count="12">0</span>
-            <span class="stat-label">Active communities</span>
-          </div>
-        </div>
       </div>
       <div class="landing-hero-visual">
         <div class="hero-preview">
@@ -395,17 +381,18 @@
         <footer><span>© 2026 Campus Connect</span><span>A little more connected. A lot more you.</span><button id="about-btn">About Campus Connect</button></footer>
       </main>
     </div>
-    <div class="modal-backdrop" id="modal" hidden>
-      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabindex="-1">
-        <button class="modal-close" aria-label="Close dialog">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-        <div id="modal-content"></div>
-      </section>
-    </div>
-    <div id="toast" role="status"></div>
-    <noscript><p class="noscript">Please enable JavaScript to browse events and register.</p></noscript>
   </div>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="dialog-title" tabindex="-1">
+      <button class="modal-close" aria-label="Close dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="18" x2="18" y2="6"/></svg>
+      </button>
+      <div id="modal-content"></div>
+    </section>
+  </div>
+  <div id="toast" role="status"></div>
+  <noscript><p class="noscript">Please enable JavaScript to browse events and register.</p></noscript>
 
   <script type="module" src="app.js?v=8"></script>
 </body>
