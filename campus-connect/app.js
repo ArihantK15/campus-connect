@@ -1026,6 +1026,7 @@ async function startApp() {
       user = { ...remembered, ...(await api.getMe()) };
     } catch (error) {
       console.error('Could not restore the selected user:', error);
+      toast('Your previously selected user could not be restored. Choose a user to continue.');
     }
   }
   if (!user) api.setUser(null);
