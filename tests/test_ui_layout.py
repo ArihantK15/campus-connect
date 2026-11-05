@@ -46,6 +46,7 @@ class PublicAndDashboardLayoutTests(unittest.TestCase):
     def setUpClass(cls):
         cls.html = (ROOT / "campus-connect" / "index.html").read_text(encoding="utf-8")
         cls.css = (ROOT / "campus-connect" / "style.css").read_text(encoding="utf-8")
+        cls.js = (ROOT / "campus-connect" / "app.js").read_text(encoding="utf-8")
         cls.parser = LayoutParser()
         cls.parser.feed(cls.html)
 
@@ -75,6 +76,15 @@ class PublicAndDashboardLayoutTests(unittest.TestCase):
     def test_hidden_attribute_wins_over_component_display_rules(self):
         self.assertIn("[hidden]", self.css)
         self.assertIn("display: none !important", self.css)
+
+    def test_dashboard_page_updates_are_scoped_to_dashboard(self):
+        self.assertIn("$('#app-shell .page-intro h1').innerHTML", self.js)
+        self.assertNotIn("$('h1').innerHTML", self.js)
+
+    def test_landing_navigation_and_section_headers_override_dashboard_styles(self):
+        self.assertRegex(self.css, r"\.landing-nav\s*\{[^}]*flex-direction:\s*row")
+        self.assertRegex(self.css, r"\.landing-page \.section-header\s*\{[^}]*position:\s*static")
+        self.assertRegex(self.css, r"\.landing-footer nav\s*\{[^}]*flex-direction:\s*row")
 
 
 if __name__ == "__main__":

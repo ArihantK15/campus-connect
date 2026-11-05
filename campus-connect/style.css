@@ -230,6 +230,7 @@ svg {
   top: 0;
   z-index: 100;
   display: flex;
+  height: auto;
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4) var(--space-6);
@@ -262,6 +263,7 @@ svg {
 
 .landing-nav {
   display: flex;
+  flex-direction: row;
   align-items: center;
   gap: var(--space-3);
 }
@@ -544,6 +546,18 @@ svg {
   margin: 0 auto var(--space-12);
 }
 
+.landing-page .section-header {
+  position: static;
+  top: auto;
+  z-index: auto;
+  height: auto;
+  display: block;
+  padding: 0;
+  background: transparent;
+  backdrop-filter: none;
+  border: 0;
+}
+
 .section-title {
   font-size: clamp(1.75rem, 3vw, 2.25rem);
   font-weight: 700;
@@ -737,6 +751,7 @@ svg {
 
 .landing-footer nav {
   display: flex;
+  flex-direction: row;
   gap: var(--space-6);
 }
 

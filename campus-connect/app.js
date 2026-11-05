@@ -363,9 +363,9 @@ function navigate(p) {if(!pageInfo[p])p='discover';if(location.hash!=='#'+p){loc
 function setPage(p) {
  if(!pageInfo[p])p='discover';page=p;category='All events';calendar=false;$('#search').value='';$('#free-filter').checked=false;$('#date-filter').value='all';$('#filter-btn').setAttribute('aria-expanded','false');
  document.querySelectorAll('[data-page]').forEach(button=>{const active=button.dataset.page===p;button.classList.toggle('active',active);if(active)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');});
- const info=pageInfo[p];$('h1').innerHTML=esc(info[0])+`<span>${esc(info[1])}</span>`;$('.page-intro p').textContent=info[2];$('#section-title').textContent=info[3];$('#section-description').textContent=info[4];$('#breadcrumb').textContent=info[5];document.title=`${info[5]} · Campus Connect`;
- $('.eyebrow').textContent=p==='discover'?'A LITTLE CURIOSITY. A LOT OF POSSIBILITY.':p==='communities'?'BETTER, TOGETHER.':'YOUR CAMPUS, YOUR WAY.';
- $('.hero').hidden=p!=='discover';$('.intro-doodle').hidden=p!=='discover';$('.community-banner').hidden=p!=='discover';$('.bottom-note').hidden=p!=='discover';$('.filter-row').hidden=p==='communities';
+ const info=pageInfo[p];$('#app-shell .page-intro h1').innerHTML=esc(info[0])+`<span>${esc(info[1])}</span>`;$('#app-shell .page-intro p').textContent=info[2];$('#section-title').textContent=info[3];$('#section-description').textContent=info[4];$('#breadcrumb').textContent=info[5];document.title=`${info[5]} · Campus Connect`;
+ $('#app-shell .eyebrow').textContent=p==='discover'?'A LITTLE CURIOSITY. A LOT OF POSSIBILITY.':p==='communities'?'BETTER, TOGETHER.':'YOUR CAMPUS, YOUR WAY.';
+ $('#app-shell .hero').hidden=p!=='discover';$('.intro-doodle').hidden=p!=='discover';$('.community-banner').hidden=p!=='discover';$('.bottom-note').hidden=p!=='discover';$('.filter-row').hidden=p==='communities';
  render();window.scrollTo({top:0,behavior:'auto'});
 }
 window.addEventListener('hashchange',()=>{if(!$('#modal').hidden)closeModal();setPage(location.hash.slice(1));});
