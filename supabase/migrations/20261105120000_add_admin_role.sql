@@ -37,60 +37,54 @@ on conflict (id) do update set
 -- Grant admin access to all tables via service_role (already done in previous migrations)
 -- But we need to ensure admins can access data through RLS policies
 
--- Update RLS policies to allow admin role access
--- Drop existing policies and recreate with admin access
+-- RLS policies: service role (used by admin APIs) bypasses RLS entirely
+-- These policies only apply to anon/authenticated roles (direct client access)
+-- Admin APIs use service role client, so they don't need special policies
 
--- Events: admins can do everything
+-- Events: publicly readable
 drop policy if exists "Events are publicly readable" on public.events;
 create policy "Events are publicly readable"
     on public.events for select
     to anon, authenticated
     using (true);
 
-drop policy if exists "Admins can insert events" on public.events;
-create policy "Admins can insert events"
+-- Organizers can manage their own events
+drop policy if exists "Organizers can insert own events" on public.events;
+create policy "Organizers can insert own events"
     on public.events for insert
     to authenticated
     with check (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
+        organiser_id in (
+            select id from public.users where auth_user_id = auth.uid()
         )
     );
 
-drop policy if exists "Admins can update events" on public.events;
-create policy "Admins can update events"
+drop policy if exists "Organizers can update own events" on public.events;
+create policy "Organizers can update own events"
     on public.events for update
     to authenticated
     using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
+        organiser_id in (
+            select id from public.users where auth_user_id = auth.uid()
         )
     )
     with check (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
+        organiser_id in (
+            select id from public.users where auth_user_id = auth.uid()
         )
     );
 
-drop policy if exists "Admins can delete events" on public.events;
-create policy "Admins can delete events"
+drop policy if exists "Organizers can delete own events" on public.events;
+create policy "Organizers can delete own events"
     on public.events for delete
     to authenticated
     using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
+        organiser_id in (
+            select id from public.users where auth_user_id = auth.uid()
         )
     );
 
--- Users: admins can view all users
+-- Users: server-only (no direct client access)
 drop policy if exists "Users are server-only" on public.users;
 create policy "Users are server-only"
     on public.users for all
@@ -98,122 +92,12 @@ create policy "Users are server-only"
     using (false)
     with check (false);
 
-drop policy if exists "Admins can view all users" on public.users;
-create policy "Admins can view all users"
-    on public.users for select
-    to authenticated
-    using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
-
-drop policy if exists "Admins can insert users" on public.users;
-create policy "Admins can insert users"
-    on public.users for insert
-    to authenticated
-    with check (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
-
-drop policy if exists "Admins can update users" on public.users;
-create policy "Admins can update users"
-    on public.users for update
-    to authenticated
-    using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    )
-    with check (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
-
-drop policy if exists "Admins can delete users" on public.users;
-create policy "Admins can delete users"
-    on public.users for delete
-    to authenticated
-    using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
-
--- Registrations: admins can view all registrations
+-- Registrations: server-only (no direct client access)
 drop policy if exists "Registrations are server-only" on public.registrations;
 create policy "Registrations are server-only"
     on public.registrations for all
     to anon, authenticated
     using (false)
     with check (false);
-
-drop policy if exists "Admins can view all registrations" on public.registrations;
-create policy "Admins can view all registrations"
-    on public.registrations for select
-    to authenticated
-    using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
-
-drop policy if exists "Admins can insert registrations" on public.registrations;
-create policy "Admins can insert registrations"
-    on public.registrations for insert
-    to authenticated
-    with check (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
-
-drop policy if exists "Admins can update registrations" on public.registrations;
-create policy "Admins can update registrations"
-    on public.registrations for update
-    to authenticated
-    using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    )
-    with check (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
-
-drop policy if exists "Admins can delete registrations" on public.registrations;
-create policy "Admins can delete registrations"
-    on public.registrations for delete
-    to authenticated
-    using (
-        exists (
-            select 1 from public.users
-            where auth_user_id = auth.uid()
-            and role = 'admin'
-        )
-    );
 
 commit;
