@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python files
+        run: python -m py_compile app.py tests/test_auth_api.py
+      - name: Check JavaScript syntax
+        run: node --check campus-connect/app.js && node --check campus-connect/api.js
+      - name: Run API tests
+        run: python -m unittest discover -s tests -v
