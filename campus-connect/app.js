@@ -71,8 +71,8 @@ const initials = name => name.split(/\s+/).map(x=>x[0]).slice(0,2).join('').toUp
 const roleLabel = role => role==='attendee'?'Attendee':role==='organizer'?'Organizer':role==='admin'?'Admin':role;
 function profile() {
  $('#event-count').textContent=registered.length;
- const staff=Boolean(user&&(user.role==='organizer'||user.role==='admin'));
- $('#profile-btn').hidden=!staff;
+  $('#profile-btn').hidden=!user;
+ if(user)$('#profile-name').textContent={attendee:'My dashboard',organizer:'Organizer dashboard',admin:'Admin dashboard'}[user.role]||'Dashboard';
  if(user){$('#avatar').textContent=initials(user.name);$('#avatar').title=`${user.name} (${roleLabel(user.role)})`;}
  else {$('#avatar').innerHTML=icon('people');$('#avatar').title='Guest';}
  renderRolePanel();
@@ -84,10 +84,10 @@ function renderRolePanel() {
  panel.dataset.role=user.role;
  const stats=`${registered.length} registered · ${saved.length} saved · ${joined.length} communit${joined.length===1?'y':'ies'}`;
  const text={attendee:'You can register for events, save them and join communities.',organizer:'You can also create events and manage registrations for your own events.',admin:'You can manage every event, user and registration on campus.'}[user.role]||'';
- const actions=user.role==='attendee'?'':`<button class="primary-btn" data-role-action="create">${icon('spark')} Create event</button><button class="secondary-btn" data-role-action="organizer">${icon('calendar')} My events</button>${user.role==='admin'?`<button class="secondary-btn" data-role-action="admin">${icon('campus')} Admin dashboard</button>`:''}`;
+ const actions=user.role==='attendee'?`<button class="primary-btn" data-role-action="dashboard">${icon('calendar')} My dashboard</button>`:user.role==='organizer'?`<button class="primary-btn" data-role-action="dashboard">${icon('calendar')} Organizer dashboard</button><button class="secondary-btn" data-role-action="create">${icon('spark')} Create event</button>`:`<button class="primary-btn" data-role-action="dashboard">${icon('campus')} Admin dashboard</button><button class="secondary-btn" data-role-action="create">${icon('spark')} Create event</button>`;
  panel.hidden=false;
  panel.innerHTML=`<span class="role-badge role-${esc(user.role)}">${esc(roleLabel(user.role))}</span><strong>Viewing as ${esc(user.name)}</strong><small>${esc(text)} ${esc(stats)}</small><div class="role-actions">${actions}</div>`;
- panel.querySelectorAll('[data-role-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.roleAction;if(a==='create')openEventForm();else if(a==='organizer')openOrganizerDashboard();else openAdminDashboard();});
+ panel.querySelectorAll('[data-role-action]').forEach(b=>b.onclick=()=>{const a=b.dataset.roleAction;if(a==='create')openEventForm();else openMyDashboard();});
 }
 function toast(message) {$('#toast').textContent=message;$('#toast').classList.add('show');clearTimeout(window.toastTimer);window.toastTimer=setTimeout(()=>$('#toast').classList.remove('show'),4500);}
 async function loadEvents() {
@@ -414,14 +414,26 @@ $('#reset-filter').onclick=clearFilters;$('#clear-filters').onclick=clearFilters
 $('#calendar-btn').onclick=()=>{calendar=!calendar;render();};
 $('#empty-action').onclick=()=>{if(eventsLoadFailed){loadEvents();return;}if(hasFilters())clearFilters();else if(page==='registered'&&!user){requireUser();}else navigate(page==='discover'?'communities':'discover');};
 $('#hero-details').onclick=()=>{const feature=events.find(event=>event.timestamp)||events[0];if(feature)detail(feature.id);else toast('No events are available yet.');};
-function openDashboardMenu() {
- const isAdmin=user.role==='admin';
- openModal(`<div class="modal-body"><div class="auth-logo" aria-hidden="true">✳</div><h2>Hey, ${esc(user.name)}.</h2><p>${esc(user.email)} · ${esc(roleLabel(user.role))}</p><p>You have ${registered.length} registered event${registered.length===1?'':'s'}, ${saved.length} saved event${saved.length===1?'':'s'}, and ${joined.length} communit${joined.length===1?'y':'ies'}.</p><button class="primary-btn" id="create-event-btn">${icon('spark')} Create Event</button><button class="secondary-btn" id="organizer-dashboard-btn">${icon('calendar')} Organizer Dashboard</button>${isAdmin?`<button class="secondary-btn" id="admin-dashboard-btn">${icon('campus')} Admin Dashboard</button>`:''}</div>`);
- $('#create-event-btn').onclick=()=>{closeModal();openEventForm();};
- $('#organizer-dashboard-btn').onclick=()=>{closeModal();openOrganizerDashboard();};
- if(isAdmin)$('#admin-dashboard-btn').onclick=()=>{closeModal();openAdminDashboard();};
+function openMyDashboard() {
+ if(!user)return;
+ if(user.role==='admin')return openAdminDashboard();
+ if(user.role==='organizer')return openOrganizerDashboard();
+ openAttendeeDashboard();
 }
-$('#profile-btn').onclick=()=>{if(!user){requireUser();return;}if(user.role==='organizer'||user.role==='admin')openDashboardMenu();};
+function openAttendeeDashboard() {
+ const mine=events.filter(e=>registered.includes(e.id)),savedList=events.filter(e=>saved.includes(e.id)),groups=communities.filter(c=>joined.includes(c.id));
+ const row=e=>`<li><button class="link-row" data-open-event="${esc(e.id)}"><strong>${esc(e.title)}</strong><small>${esc(e.dateLabel)} · ${esc(e.time)} · ${esc(e.location)}</small></button></li>`;
+ const list=(items,empty)=>items.length?`<ul class="dash-list">${items.join('')}</ul>`:`<p class="dash-empty">${empty}</p>`;
+ openModal(`<div class="modal-body attendee-dashboard-modal"><span class="category-label">MY DASHBOARD</span><h2>Hi, ${esc(user.name)}.</h2>
+  <div class="dash-stats"><div><b>${mine.length}</b><span>Registered</span></div><div><b>${savedList.length}</b><span>Saved</span></div><div><b>${groups.length}</b><span>Communities</span></div></div>
+  <h3>Your registrations</h3>${list(mine.map(row),'You have not registered for anything yet.')}
+  <h3>Saved for later</h3>${list(savedList.map(row),'Nothing saved yet.')}
+  <h3>Your communities</h3>${list(groups.map(c=>`<li><span class="link-row"><strong>${esc(c.name)}</strong><small>${c.member_count} members</small></span></li>`),'You have not joined a community yet.')}
+  <button class="secondary-btn" id="dash-close">Close</button></div>`);
+ $('#dash-close').onclick=closeModal;
+ document.querySelectorAll('[data-open-event]').forEach(b=>b.onclick=()=>{closeModal();detail(b.dataset.openEvent);});
+}
+$('#profile-btn').onclick=()=>{if(!user){requireUser();return;}openMyDashboard();};
 $('#explore-btn').onclick=()=>{navigate('discover');requestAnimationFrame(()=>$('#events-heading').scrollIntoView({behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'}));};
 $('#community-btn').onclick=()=>navigate('communities');
 $('#notification-btn').onclick=()=>openModal(`<div class="modal-body"><span class="auth-logo">${icon('bell')}</span><h2>Your campus updates</h2><p>${registered.length?`You’re registered for ${registered.length} event${registered.length===1?'':'s'}. Your entry passes are ready in My events.`:'You’re all caught up. Register for an event to start making campus plans.'}</p><button class="primary-btn" id="notifications-events">${registered.length?'Go to My events':'Discover events'}</button></div>`);
